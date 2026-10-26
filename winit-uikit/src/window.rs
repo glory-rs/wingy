@@ -14,7 +14,7 @@ use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSObject, NSObjectProtocol};
 use objc2_ui_kit::{
     UIApplication, UICoordinateSpace, UIEdgeInsets, UIResponder, UIScreen,
-    UIScreenOverscanCompensation, UIViewController, UIWindow,
+    UIScreenOverscanCompensation, UIViewController, UIWindow, UIWindowScene,
 };
 use tracing::{debug, debug_span, warn};
 use winit_core::cursor::Cursor;
@@ -81,6 +81,18 @@ impl WinitUIWindow {
         //
         // Winit ensures this by not allowing access to `ActiveEventLoop` before handling events.
         let this: Retained<Self> = unsafe { msg_send![mtm.alloc(), initWithFrame: frame] };
+
+        // Scene-based applications must associate the native window before
+        // making it visible. Legacy applications have no connected scenes and
+        // retain their existing UIWindow path. The embedder creates windows
+        // after its scene connects; all calls remain on the UIKit main thread.
+        let scenes = UIApplication::sharedApplication(mtm).connectedScenes();
+        for scene in scenes.allObjects() {
+            if let Some(scene) = scene.downcast_ref::<UIWindowScene>() {
+                this.setWindowScene(Some(scene));
+                break;
+            }
+        }
 
         this.setRootViewController(Some(view_controller));
 
