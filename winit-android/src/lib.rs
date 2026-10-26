@@ -74,7 +74,11 @@
 
 mod event_loop;
 mod event_loop_lifetime;
+#[cfg(feature = "game-activity")]
+mod game_ime;
 mod keycodes;
+#[cfg(feature = "game-activity")]
+mod text_input_model;
 
 use winit_core::event_loop::ActiveEventLoop as CoreActiveEventLoop;
 use winit_core::window::Window as CoreWindow;

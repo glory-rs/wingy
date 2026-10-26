@@ -153,6 +153,8 @@ impl EventLoop {
                 exit: Cell::new(false),
                 redraw_requester: RedrawRequester::new(&redraw_flag, android_app.create_waker()),
                 event_loop_proxy,
+                #[cfg(feature = "game-activity")]
+                game_ime: Default::default(),
             },
             redraw_flag,
             loop_running: false,
@@ -286,6 +288,9 @@ impl EventLoop {
             app.proxy_wake_up(&self.window_target);
         }
 
+        #[cfg(feature = "game-activity")]
+        self.dispatch_game_ime(app);
+
         if self.running {
             if resized {
                 let size = if let Some(native_window) = self.android_app.native_window().as_ref() {
@@ -319,8 +324,44 @@ impl EventLoop {
         event: &InputEvent<'_>,
         app: &mut A,
     ) -> InputStatus {
+        #[cfg(feature = "game-activity")]
+        self.dispatch_game_ime(app);
         let mut input_status = InputStatus::Handled;
         match event {
+            #[cfg(feature = "game-activity")]
+            InputEvent::TextEvent(state) => {
+                let effect = self.window_target.game_ime.lock().unwrap().receive(state.clone());
+                effect.apply(android_app);
+                self.dispatch_game_ime(app);
+            },
+            #[cfg(feature = "game-activity")]
+            InputEvent::TextAction(_) => {
+                if self.window_target.game_ime.lock().unwrap().capabilities.is_some() {
+                    for state in [event::ElementState::Pressed, event::ElementState::Released] {
+                        app.window_event(
+                            &self.window_target,
+                            GLOBAL_WINDOW,
+                            event::WindowEvent::KeyboardInput {
+                                device_id: None,
+                                is_synthetic: false,
+                                event: event::KeyEvent {
+                                    state,
+                                    physical_key: keycodes::to_physical_key(Keycode::Enter),
+                                    logical_key: keycodes::to_logical(None, Keycode::Enter),
+                                    key_without_modifiers: keycodes::to_logical(
+                                        None,
+                                        Keycode::Enter,
+                                    ),
+                                    location: keycodes::to_location(Keycode::Enter),
+                                    repeat: false,
+                                    text: None,
+                                    text_with_all_modifiers: None,
+                                },
+                            },
+                        );
+                    }
+                }
+            },
             InputEvent::MotionEvent(motion_event) => {
                 let device_id = Some(DeviceId::from_raw(motion_event.device_id() as i64));
                 let action = motion_event.action();
@@ -477,6 +518,12 @@ impl EventLoop {
                         );
 
                         let logical_key = keycodes::to_logical(key_char, keycode);
+                        #[cfg(feature = "game-activity")]
+                        if matches!(logical_key, winit_core::keyboard::Key::Character(_))
+                            && self.window_target.game_ime.lock().unwrap().capabilities.is_some()
+                        {
+                            return InputStatus::Handled;
+                        }
                         let text = if state == event::ElementState::Pressed {
                             logical_key.to_text().map(smol_str::SmolStr::new)
                         } else {
@@ -508,6 +555,14 @@ impl EventLoop {
         }
 
         input_status
+    }
+
+    #[cfg(feature = "game-activity")]
+    fn dispatch_game_ime<A: ApplicationHandler>(&mut self, app: &mut A) {
+        let events = self.window_target.game_ime.lock().unwrap().drain();
+        for event in events {
+            app.window_event(&self.window_target, GLOBAL_WINDOW, event::WindowEvent::Ime(event));
+        }
     }
 
     pub fn run_app_on_demand<A: ApplicationHandler>(
@@ -711,6 +766,8 @@ pub struct ActiveEventLoop {
     exit: Cell<bool>,
     redraw_requester: RedrawRequester,
     event_loop_proxy: Arc<EventLoopProxy>,
+    #[cfg(feature = "game-activity")]
+    game_ime: Arc<Mutex<crate::game_ime::GameIme>>,
 }
 
 impl ActiveEventLoop {
@@ -800,7 +857,10 @@ pub struct PlatformSpecificWindowAttributes;
 #[derive(Debug)]
 pub struct Window {
     app: AndroidApp,
+    #[cfg(not(feature = "game-activity"))]
     ime_capabilities: Mutex<Option<ImeCapabilities>>,
+    #[cfg(feature = "game-activity")]
+    game_ime: Arc<Mutex<crate::game_ime::GameIme>>,
     redraw_requester: RedrawRequester,
 }
 
@@ -819,7 +879,10 @@ impl Window {
 
         Ok(Self {
             app: el.app.clone(),
+            #[cfg(not(feature = "game-activity"))]
             ime_capabilities: Default::default(),
+            #[cfg(feature = "game-activity")]
+            game_ime: el.game_ime.clone(),
             redraw_requester: el.redraw_requester.clone(),
         })
     }
@@ -994,32 +1057,44 @@ impl CoreWindow for Window {
     fn set_ime_cursor_area(&self, _position: Position, _size: Size) {}
 
     fn request_ime_update(&self, request: ImeRequest) -> Result<(), ImeRequestError> {
-        let mut current_caps = self.ime_capabilities.lock().unwrap();
-        match request {
-            ImeRequest::Enable(enable) => {
-                let (capabilities, _) = enable.into_raw();
-                if current_caps.is_some() {
-                    return Err(ImeRequestError::AlreadyEnabled);
-                }
-                *current_caps = Some(capabilities);
-                self.app.show_soft_input(true);
-            },
-            ImeRequest::Update(_) => {
-                if current_caps.is_none() {
-                    return Err(ImeRequestError::NotEnabled);
-                }
-            },
-            ImeRequest::Disable => {
-                *current_caps = None;
-                self.app.hide_soft_input(true);
-            },
-            _ => return Err(ImeRequestError::NotSupported),
+        #[cfg(feature = "game-activity")]
+        {
+            let effect = self.game_ime.lock().unwrap().request(request)?;
+            effect.apply(&self.app);
+            Ok(())
         }
+        #[cfg(not(feature = "game-activity"))]
+        {
+            let mut current_caps = self.ime_capabilities.lock().unwrap();
+            match request {
+                ImeRequest::Enable(enable) => {
+                    let (capabilities, _) = enable.into_raw();
+                    if current_caps.is_some() {
+                        return Err(ImeRequestError::AlreadyEnabled);
+                    }
+                    *current_caps = Some(capabilities);
+                    self.app.show_soft_input(true);
+                },
+                ImeRequest::Update(_) => {
+                    if current_caps.is_none() {
+                        return Err(ImeRequestError::NotEnabled);
+                    }
+                },
+                ImeRequest::Disable => {
+                    *current_caps = None;
+                    self.app.hide_soft_input(true);
+                },
+                _ => return Err(ImeRequestError::NotSupported),
+            }
 
-        Ok(())
+            Ok(())
+        }
     }
 
     fn ime_capabilities(&self) -> Option<ImeCapabilities> {
+        #[cfg(feature = "game-activity")]
+        return self.game_ime.lock().unwrap().capabilities;
+        #[cfg(not(feature = "game-activity"))]
         *self.ime_capabilities.lock().unwrap()
     }
 
