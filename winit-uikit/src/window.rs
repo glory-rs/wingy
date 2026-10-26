@@ -48,10 +48,10 @@ define_class!(
         fn become_key_window(&self) {
             let _entered = debug_span!("becomeKeyWindow").entered();
             let mtm = MainThreadMarker::new().unwrap();
-            app_state::handle_nonuser_event(mtm, EventWrapper::Window {
-                window_id: self.id(),
-                event: WindowEvent::Focused(true),
-            });
+            app_state::handle_nonuser_event(
+                mtm,
+                EventWrapper::Window { window_id: self.id(), event: WindowEvent::Focused(true) },
+            );
             let _: () = unsafe { msg_send![super(self), becomeKeyWindow] };
         }
 
@@ -59,10 +59,10 @@ define_class!(
         fn resign_key_window(&self) {
             let _entered = debug_span!("resignKeyWindow").entered();
             let mtm = MainThreadMarker::new().unwrap();
-            app_state::handle_nonuser_event(mtm, EventWrapper::Window {
-                window_id: self.id(),
-                event: WindowEvent::Focused(false),
-            });
+            app_state::handle_nonuser_event(
+                mtm,
+                EventWrapper::Window { window_id: self.id(), event: WindowEvent::Focused(false) },
+            );
             let _: () = unsafe { msg_send![super(self), resignKeyWindow] };
         }
     }
@@ -395,25 +395,32 @@ impl Inner {
     /// [objc2_ui_kit::UIKeyInput], the keyboard will be shown.
     /// <https://developer.apple.com/documentation/uikit/uiresponder/1621113-becomefirstresponder>
     fn request_ime_update(&self, request: ImeRequest) -> Result<(), ImeRequestError> {
-        let mut current_caps = self.ime_capabilities.lock().unwrap();
         match request {
             ImeRequest::Enable(enable) => {
-                let (capabilities, _) = enable.into_raw();
-                if current_caps.is_some() {
-                    return Err(ImeRequestError::AlreadyEnabled);
+                let (capabilities, data) = enable.into_raw();
+                {
+                    let mut current = self.ime_capabilities.lock().unwrap();
+                    if current.is_some() {
+                        return Err(ImeRequestError::AlreadyEnabled);
+                    }
+                    *current = Some(capabilities);
                 }
-                *current_caps = Some(capabilities);
-
-                self.view.becomeFirstResponder();
+                self.view.enable_ime(data);
             },
-            ImeRequest::Update(_) => {
-                if current_caps.is_none() {
-                    return Err(ImeRequestError::NotEnabled);
+            ImeRequest::Update(data) => {
+                let capabilities =
+                    self.ime_capabilities.lock().unwrap().ok_or(ImeRequestError::NotEnabled)?;
+                if data.cursor_area.is_some() && !capabilities.cursor_area()
+                    || data.hint_and_purpose.is_some() && !capabilities.hint_and_purpose()
+                    || data.surrounding_text.is_some() && !capabilities.surrounding_text()
+                {
+                    return Err(ImeRequestError::NotSupported);
                 }
+                self.view.update_ime(data);
             },
             ImeRequest::Disable => {
-                *current_caps = None;
-                self.view.resignFirstResponder();
+                *self.ime_capabilities.lock().unwrap() = None;
+                self.view.disable_ime();
             },
             _ => return Err(ImeRequestError::NotSupported),
         }

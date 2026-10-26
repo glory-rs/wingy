@@ -105,6 +105,8 @@ mod app_state;
 mod event_loop;
 mod monitor;
 mod view;
+mod text_input;
+mod text_input_model;
 mod view_controller;
 mod window;
 
