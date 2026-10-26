@@ -2,6 +2,8 @@
 //! spans/deletions are UTF-8. Unsolicited native selection/correction is refused.
 use std::ops::Range;
 
+pub(crate) const MAX_NATIVE_BYTES: usize = 16384;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct NativeState {
     pub text: String,
@@ -77,7 +79,7 @@ impl TextInputModel {
 
     pub fn receive(&mut self, state: NativeState) -> Result<Vec<Edit>, ()> {
         // GameTextInput itself owns its buffer; bound all clones and events here.
-        if state.text.len() > 16384 {
+        if state.text.len() > MAX_NATIVE_BYTES {
             return Err(());
         }
         let selected = range_at(&state.text, state.selection).ok_or(())?;

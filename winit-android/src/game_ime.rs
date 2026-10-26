@@ -1,4 +1,4 @@
-use crate::text_input_model::{Edit, NativeState, TextInputModel};
+use crate::text_input_model::{Edit, MAX_NATIVE_BYTES, NativeState, TextInputModel};
 use android_activity::{
     AndroidApp,
     input::{ImeOptions, InputType, TextInputAction, TextInputState, TextSpan},
@@ -128,12 +128,16 @@ impl GameIme {
             }
         }
     }
-    pub fn receive(&mut self, state: TextInputState) -> Effects {
+    pub fn receive(&mut self, state: &TextInputState) -> Effects {
         if self.capabilities.is_none() {
             return Effects::default();
         }
+        // Check the borrowed Android buffer before allocating our bounded copy.
+        if state.text.len() > MAX_NATIVE_BYTES {
+            return Effects { state: Some(self.model.native()), ..Default::default() };
+        }
         let native = NativeState {
-            text: state.text,
+            text: state.text.clone(),
             selection: (state.selection.start, state.selection.end),
             compose: state.compose_region.map(|span| (span.start, span.end)),
         };

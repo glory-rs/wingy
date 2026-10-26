@@ -330,7 +330,7 @@ impl EventLoop {
         match event {
             #[cfg(feature = "game-activity")]
             InputEvent::TextEvent(state) => {
-                let effect = self.window_target.game_ime.lock().unwrap().receive(state.clone());
+                let effect = self.window_target.game_ime.lock().unwrap().receive(state);
                 effect.apply(android_app);
                 self.dispatch_game_ime(app);
             },
