@@ -24,6 +24,7 @@ pub(crate) struct TextInput {
     pub(crate) enabled: Cell<bool>,
     pub(crate) delegate: RefCell<Option<Weak<ProtocolObject<dyn UITextInputDelegate>>>>,
     pub(crate) caret: Cell<CGRect>,
+    pending_purpose: Cell<Option<ImePurpose>>,
 }
 impl TextInput {
     pub(crate) fn new(mtm: MainThreadMarker) -> Self {
@@ -35,6 +36,7 @@ impl TextInput {
             backing,
             enabled: Cell::new(false),
             delegate: RefCell::new(None),
+            pending_purpose: Cell::new(None),
             caret: Cell::new(CGRect::new(CGPoint::new(0., 0.), CGSize::new(1., 1.))),
         }
     }
@@ -67,19 +69,11 @@ impl TextInput {
         let selection = self.backing.textRangeFromPosition_toPosition(&start, &end);
         self.backing.setSelectedTextRange(selection.as_deref());
     }
-    pub(crate) fn update(&self, data: ImeRequestData, scale: f64) {
+    pub(crate) fn update(&self, data: ImeRequestData, scale: f64) -> bool {
         if let Some((_, purpose)) = data.hint_and_purpose {
-            self.backing
-                .setSecureTextEntry(matches!(purpose, ImePurpose::Password | ImePurpose::Pin));
-            self.backing.setKeyboardType(match purpose {
-                ImePurpose::Number => UIKeyboardType::NumbersAndPunctuation,
-                ImePurpose::Phone => UIKeyboardType::PhonePad,
-                ImePurpose::Url => UIKeyboardType::URL,
-                ImePurpose::Email => UIKeyboardType::EmailAddress,
-                ImePurpose::Pin => UIKeyboardType::NumberPad,
-                _ => UIKeyboardType::Default,
-            });
+            self.pending_purpose.set(Some(purpose));
         }
+        let changed = self.apply_pending_purpose();
         if let Some((position, size)) = data.cursor_area {
             let p = position.to_logical::<f64>(scale);
             let s = size.to_logical::<f64>(scale);
@@ -97,7 +91,7 @@ impl TextInput {
             // A renderer can acknowledge the old committed value while native
             // marked text is active. Never overwrite that live composition.
             if self.backing.markedTextRange().is_some() {
-                return;
+                return changed;
             }
             let text = context.text();
             let start = byte_to_utf16(text, context.cursor().min(context.anchor())).unwrap();
@@ -110,6 +104,35 @@ impl TextInput {
                 self.set_selection(selected);
             }
         }
+        changed
+    }
+    // Changing native traits must not destroy live marked text. Defer them
+    // until the first terminal update, then refresh the actual input views.
+    pub(crate) fn apply_pending_purpose(&self) -> bool {
+        if self.backing.markedTextRange().is_some() {
+            return false;
+        }
+        let Some(purpose) = self.pending_purpose.take() else {
+            return false;
+        };
+        let secure = matches!(purpose, ImePurpose::Password | ImePurpose::Pin);
+        let keyboard = match purpose {
+            ImePurpose::Number => UIKeyboardType::NumbersAndPunctuation,
+            ImePurpose::Phone => UIKeyboardType::PhonePad,
+            ImePurpose::Url => UIKeyboardType::URL,
+            ImePurpose::Email => UIKeyboardType::EmailAddress,
+            ImePurpose::Pin => UIKeyboardType::NumberPad,
+            _ => UIKeyboardType::Default,
+        };
+        let changed =
+            self.backing.isSecureTextEntry() != secure || self.backing.keyboardType() != keyboard;
+        if self.backing.isSecureTextEntry() != secure {
+            self.backing.setSecureTextEntry(secure);
+        }
+        if self.backing.keyboardType() != keyboard {
+            self.backing.setKeyboardType(keyboard);
+        }
+        changed
     }
     pub(crate) fn preedit(&self) -> Ime {
         let Some(marked) = self.backing.markedTextRange() else {
@@ -135,5 +158,6 @@ impl TextInput {
     pub(crate) fn clear(&self) {
         self.backing.unmarkText();
         self.backing.setText(Some(&NSString::new()));
+        self.apply_pending_purpose();
     }
 }

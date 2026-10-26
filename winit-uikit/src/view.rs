@@ -588,7 +588,10 @@ impl WinitView {
             delegate.textWillChange(Some(input));
             delegate.selectionWillChange(Some(input));
         }
-        self.ivars().text_input.update(data, self.contentScaleFactor() as f64);
+        let changed = self.ivars().text_input.update(data, self.contentScaleFactor() as f64);
+        if changed && self.isFirstResponder() {
+            self.reloadInputViews();
+        }
         if notify && let Some(delegate) = &delegate {
             delegate.textDidChange(Some(input));
             delegate.selectionDidChange(Some(input));
@@ -629,11 +632,13 @@ impl WinitView {
             return;
         }
         self.native_text().setMarkedText_selectedRange(text, selected);
+        self.finish_native_traits();
         self.emit_ime(self.ivars().text_input.preedit());
     }
     fn native_unmark(&self) {
         let marked = self.ivars().text_input.marked();
         self.native_text().unmarkText();
+        self.finish_native_traits();
         if let Some(text) = marked {
             if text.is_empty() {
                 self.emit_ime(Ime::Preedit(text, Some((0, 0))));
@@ -642,11 +647,17 @@ impl WinitView {
             }
         }
     }
+    fn finish_native_traits(&self) {
+        if self.ivars().text_input.apply_pending_purpose() && self.isFirstResponder() {
+            self.reloadInputViews();
+        }
+    }
     fn native_insert_text(&self, text: &NSString) {
         if !self.ivars().text_input.enabled.get() {
             return;
         }
         self.native_text().insertText(text);
+        self.finish_native_traits();
         let value = text.to_string();
         if value == "\n" {
             self.handle_insert_text(text);
@@ -660,6 +671,7 @@ impl WinitView {
         }
         let composing = self.native_text().markedTextRange().is_some();
         self.native_text().deleteBackward();
+        self.finish_native_traits();
         if composing {
             self.emit_ime(self.ivars().text_input.preedit());
         } else {
