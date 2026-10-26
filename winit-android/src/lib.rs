@@ -73,6 +73,7 @@
 #![warn(clippy::exhaustive_enums)]
 
 mod event_loop;
+mod event_loop_lifetime;
 mod keycodes;
 
 use winit_core::event_loop::ActiveEventLoop as CoreActiveEventLoop;

@@ -112,6 +112,8 @@ pub struct EventLoop {
     primary_pointer: Option<FingerId>,
     ignore_volume_keys: bool,
     combining_accent: Option<char>,
+    // Declared last: release only after AndroidApp/window/proxy state drops.
+    _lifetime: crate::event_loop_lifetime::EventLoopLifetime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -131,16 +133,12 @@ const GLOBAL_WINDOW: WindowId = WindowId::from_raw(0);
 
 impl EventLoop {
     pub fn new(attributes: &PlatformSpecificEventLoopAttributes) -> Result<Self, EventLoopError> {
-        static EVENT_LOOP_CREATED: AtomicBool = AtomicBool::new(false);
-        if EVENT_LOOP_CREATED.swap(true, Ordering::Relaxed) {
-            // For better cross-platformness.
-            return Err(EventLoopError::RecreationAttempt);
-        }
-
         let android_app = attributes.android_app.as_ref().expect(
             "An `AndroidApp` as passed to android_main() is required to create an `EventLoop` on \
              Android",
         );
+        let lifetime = crate::event_loop_lifetime::EventLoopLifetime::acquire()
+            .ok_or(EventLoopError::RecreationAttempt)?;
 
         let event_loop_proxy = Arc::new(EventLoopProxy::new(android_app.create_waker()));
 
@@ -163,6 +161,7 @@ impl EventLoop {
             cause: StartCause::Init,
             ignore_volume_keys: attributes.ignore_volume_keys,
             combining_accent: None,
+            _lifetime: lifetime,
         })
     }
 
@@ -248,9 +247,9 @@ impl EventLoop {
                     app.suspended(self.window_target());
                 },
                 MainEvent::Destroy => {
-                    // XXX: maybe exit mainloop to drop things before being
-                    // killed by the OS?
-                    warn!("TODO: forward onDestroy notification to application");
+                    // Exit this Activity's loop so its application, windows and
+                    // callbacks are dropped before a later Activity creates one.
+                    self.window_target.exit();
                 },
                 MainEvent::InsetsChanged { .. } => {
                     // XXX: how to forward this state to applications?
