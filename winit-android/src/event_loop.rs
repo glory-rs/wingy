@@ -30,7 +30,7 @@ use winit_core::window::{
     WindowLevel,
 };
 
-use crate::keycodes;
+use crate::{keycodes, wake_policy};
 
 static HAS_FOCUS: AtomicBool = AtomicBool::new(true);
 
@@ -626,10 +626,11 @@ impl EventLoop {
 
         self.pending_redraw |= self.redraw_flag.get_and_reset();
 
-        timeout = if self.running
-            && (self.pending_redraw
-                || self.window_target.event_loop_proxy.wake_up.load(Ordering::Relaxed))
-        {
+        timeout = if wake_policy::has_work(
+            self.running,
+            self.pending_redraw,
+            self.window_target.event_loop_proxy.wake_up.load(Ordering::Relaxed),
+        ) {
             // If we already have work to do then we don't want to block on the next poll
             Some(Duration::ZERO)
         } else {
@@ -657,12 +658,16 @@ impl EventLoop {
                     //
                     // For now, user_events and redraw_requests are the only reasons to expect
                     // a wake up here so we can ignore the wake up if there are no events/requests.
-                    // We also ignore wake ups while suspended.
+                    // Explicit proxy work must still run while an external
+                    // Activity owns the screen (for example, a document picker).
+                    // Rendering remains gated by `running` in single_iteration;
+                    // a deferred redraw alone must not spin the paused loop.
                     self.pending_redraw |= self.redraw_flag.get_and_reset();
-                    if !self.running
-                        || (!self.pending_redraw
-                            && !self.window_target.event_loop_proxy.wake_up.load(Ordering::Relaxed))
-                    {
+                    if !wake_policy::has_work(
+                        self.running,
+                        self.pending_redraw,
+                        self.window_target.event_loop_proxy.wake_up.load(Ordering::Relaxed),
+                    ) {
                         return;
                     }
                 },

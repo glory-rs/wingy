@@ -74,6 +74,7 @@
 
 mod event_loop;
 mod event_loop_lifetime;
+mod wake_policy;
 #[cfg(feature = "game-activity")]
 mod game_ime;
 mod keycodes;
