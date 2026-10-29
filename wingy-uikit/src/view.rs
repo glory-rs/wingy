@@ -1,0 +1,1105 @@
+#![allow(clippy::unnecessary_cast)]
+use std::cell::{Cell, RefCell};
+
+use dpi::PhysicalPosition;
+use objc2::rc::Retained;
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
+use objc2::{DefinedClass, MainThreadMarker, available, define_class, msg_send, sel};
+use objc2_core_foundation::{CGFloat, CGPoint, CGRect};
+use objc2_foundation::{
+    NSArray, NSAttributedStringKey, NSComparisonResult, NSDictionary, NSInteger, NSObject, NSRange,
+    NSSet, NSString,
+};
+use objc2_ui_kit::{
+    NSWritingDirection, UIEvent, UIForceTouchCapability, UIGestureRecognizer,
+    UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput, UIKeyboardType,
+    UIPanGestureRecognizer, UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer,
+    UITapGestureRecognizer, UITextAutocapitalizationType, UITextAutocorrectionType, UITextInput,
+    UITextInputDelegate, UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection,
+    UITextPosition, UITextRange, UITextSelectionRect, UITextSpellCheckingType,
+    UITextStorageDirection, UITouch, UITouchPhase, UITouchType, UITraitEnvironment, UIView,
+};
+use tracing::{debug, debug_span, trace_span};
+use wingy_core::event::{
+    ButtonSource, ElementState, FingerId, Force, Ime, KeyEvent, PointerKind, PointerSource,
+    TabletToolAngle, TabletToolButton, TabletToolData, TabletToolKind, TouchPhase, WindowEvent,
+};
+use wingy_core::keyboard::{Key, KeyCode, KeyLocation, NamedKey, NativeKeyCode, PhysicalKey};
+
+use super::app_state::{self, EventWrapper};
+use super::window::WingyUIWindow;
+
+pub struct WingyViewState {
+    text_input: crate::text_input::TextInput,
+    pinch_gesture_recognizer: RefCell<Option<Retained<UIPinchGestureRecognizer>>>,
+    doubletap_gesture_recognizer: RefCell<Option<Retained<UITapGestureRecognizer>>>,
+    rotation_gesture_recognizer: RefCell<Option<Retained<UIRotationGestureRecognizer>>>,
+    pan_gesture_recognizer: RefCell<Option<Retained<UIPanGestureRecognizer>>>,
+
+    // for iOS delta references the start of the Gesture
+    rotation_last_delta: Cell<CGFloat>,
+    pinch_last_delta: Cell<CGFloat>,
+    pan_last_delta: Cell<CGPoint>,
+
+    primary_finger: Cell<Option<FingerId>>,
+    fingers: Cell<u8>,
+}
+
+define_class!(
+    #[unsafe(super(UIView, UIResponder, NSObject))]
+    #[name = "WingyUIView"]
+    #[ivars = WingyViewState]
+    pub(crate) struct WingyView;
+
+    /// This documentation attribute makes rustfmt work for some reason?
+    impl WingyView {
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, rect: CGRect) {
+            let _entered = debug_span!("drawRect:").entered();
+            let mtm = MainThreadMarker::new().unwrap();
+            let window = self.window().unwrap();
+            app_state::handle_nonuser_event(
+                mtm,
+                EventWrapper::Window {
+                    window_id: window.id(),
+                    event: WindowEvent::RedrawRequested,
+                },
+            );
+            let _: () = unsafe { msg_send![super(self), drawRect: rect] };
+        }
+
+        #[unsafe(method(layoutSubviews))]
+        fn layout_subviews(&self) {
+            let _entered = debug_span!("layoutSubviews").entered();
+            let mtm = MainThreadMarker::new().unwrap();
+            let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+
+            let frame = self.frame();
+            let scale_factor = self.contentScaleFactor() as f64;
+            let size = dpi::LogicalSize {
+                width: frame.size.width as f64,
+                height: frame.size.height as f64,
+            }
+            .to_physical(scale_factor);
+
+            let window = self.window().unwrap();
+            app_state::handle_nonuser_event(
+                mtm,
+                EventWrapper::Window {
+                    window_id: window.id(),
+                    event: WindowEvent::SurfaceResized(size),
+                },
+            );
+        }
+
+        #[unsafe(method(setContentScaleFactor:))]
+        fn set_content_scale_factor(&self, untrusted_scale_factor: CGFloat) {
+            let _entered = debug_span!("setContentScaleFactor:").entered();
+            let mtm = MainThreadMarker::new().unwrap();
+            let _: () =
+                unsafe { msg_send![super(self), setContentScaleFactor: untrusted_scale_factor] };
+
+            // `window` is null when `setContentScaleFactor` is invoked prior to `[UIWindow
+            // makeKeyAndVisible]` at window creation time (either manually or internally by
+            // UIKit when the `UIView` is first created), in which case we send no events here
+            let window = match self.window() {
+                Some(window) => window,
+                None => return,
+            };
+            // `setContentScaleFactor` may be called with a value of 0, which means "reset the
+            // content scale factor to a device-specific default value", so we can't use the
+            // parameter here. We can query the actual factor using the getter
+            let scale_factor = self.contentScaleFactor();
+            assert!(
+                !scale_factor.is_nan()
+                    && scale_factor.is_finite()
+                    && scale_factor.is_sign_positive()
+                    && scale_factor > 0.0,
+                "invalid scale_factor set on UIView",
+            );
+            let scale_factor = scale_factor as f64;
+            let frame = self.frame();
+            let size = dpi::LogicalSize {
+                width: frame.size.width as f64,
+                height: frame.size.height as f64,
+            };
+            let window_id = window.id();
+            app_state::handle_nonuser_events(
+                mtm,
+                std::iter::once(EventWrapper::ScaleFactorChanged(app_state::ScaleFactorChanged {
+                    window,
+                    scale_factor,
+                    suggested_size: size.to_physical(scale_factor),
+                }))
+                .chain(std::iter::once(EventWrapper::Window {
+                    window_id,
+                    event: WindowEvent::SurfaceResized(size.to_physical(scale_factor)),
+                })),
+            );
+        }
+
+        #[unsafe(method(safeAreaInsetsDidChange))]
+        fn safe_area_changed(&self) {
+            let _entered = debug_span!("safeAreaInsetsDidChange").entered();
+            debug!("safeAreaInsetsDidChange was called, requesting redraw");
+            // When the safe area changes we want to make sure to emit a redraw event
+            self.setNeedsDisplay();
+        }
+
+        #[unsafe(method(touchesBegan:withEvent:))]
+        fn touches_began(&self, touches: &NSSet<UITouch>, _event: Option<&UIEvent>) {
+            let _entered = debug_span!("touchesBegan:withEvent:").entered();
+            self.handle_touches(touches)
+        }
+
+        #[unsafe(method(touchesMoved:withEvent:))]
+        fn touches_moved(&self, touches: &NSSet<UITouch>, _event: Option<&UIEvent>) {
+            let _entered = debug_span!("touchesMoved:withEvent:").entered();
+            self.handle_touches(touches)
+        }
+
+        #[unsafe(method(touchesEnded:withEvent:))]
+        fn touches_ended(&self, touches: &NSSet<UITouch>, _event: Option<&UIEvent>) {
+            let _entered = debug_span!("touchesEnded:withEvent:").entered();
+            self.handle_touches(touches)
+        }
+
+        #[unsafe(method(touchesCancelled:withEvent:))]
+        fn touches_cancelled(&self, touches: &NSSet<UITouch>, _event: Option<&UIEvent>) {
+            let _entered = debug_span!("touchesCancelled:withEvent:").entered();
+            self.handle_touches(touches)
+        }
+
+        #[unsafe(method(pinchGesture:))]
+        fn pinch_gesture(&self, recognizer: &UIPinchGestureRecognizer) {
+            let _entered = debug_span!("pinchGesture:").entered();
+            let window = self.window().unwrap();
+
+            let (phase, delta) = match recognizer.state() {
+                UIGestureRecognizerState::Began => {
+                    self.ivars().pinch_last_delta.set(recognizer.scale());
+                    (TouchPhase::Started, 0.0)
+                },
+                UIGestureRecognizerState::Changed => {
+                    let last_scale: f64 = self.ivars().pinch_last_delta.replace(recognizer.scale());
+                    (TouchPhase::Moved, recognizer.scale() - last_scale)
+                },
+                UIGestureRecognizerState::Ended => {
+                    let last_scale: f64 = self.ivars().pinch_last_delta.replace(0.0);
+                    (TouchPhase::Moved, recognizer.scale() - last_scale)
+                },
+                UIGestureRecognizerState::Cancelled | UIGestureRecognizerState::Failed => {
+                    self.ivars().rotation_last_delta.set(0.0);
+                    // Pass -delta so that action is reversed
+                    (TouchPhase::Cancelled, -recognizer.scale())
+                },
+                state => panic!("unexpected recognizer state: {state:?}"),
+            };
+
+            let gesture_event = EventWrapper::Window {
+                window_id: window.id(),
+                event: WindowEvent::PinchGesture { device_id: None, delta: delta as f64, phase },
+            };
+
+            let mtm = MainThreadMarker::new().unwrap();
+            app_state::handle_nonuser_event(mtm, gesture_event);
+        }
+
+        #[unsafe(method(doubleTapGesture:))]
+        fn double_tap_gesture(&self, recognizer: &UITapGestureRecognizer) {
+            let _entered = debug_span!("doubleTapGesture:").entered();
+            let window = self.window().unwrap();
+
+            if recognizer.state() == UIGestureRecognizerState::Ended {
+                let gesture_event = EventWrapper::Window {
+                    window_id: window.id(),
+                    event: WindowEvent::DoubleTapGesture { device_id: None },
+                };
+
+                let mtm = MainThreadMarker::new().unwrap();
+                app_state::handle_nonuser_event(mtm, gesture_event);
+            }
+        }
+
+        #[unsafe(method(rotationGesture:))]
+        fn rotation_gesture(&self, recognizer: &UIRotationGestureRecognizer) {
+            let _entered = debug_span!("rotationGesture:").entered();
+            let window = self.window().unwrap();
+
+            let (phase, delta) = match recognizer.state() {
+                UIGestureRecognizerState::Began => {
+                    self.ivars().rotation_last_delta.set(0.0);
+
+                    (TouchPhase::Started, 0.0)
+                },
+                UIGestureRecognizerState::Changed => {
+                    let last_rotation =
+                        self.ivars().rotation_last_delta.replace(recognizer.rotation());
+
+                    (TouchPhase::Moved, recognizer.rotation() - last_rotation)
+                },
+                UIGestureRecognizerState::Ended => {
+                    let last_rotation = self.ivars().rotation_last_delta.replace(0.0);
+
+                    (TouchPhase::Ended, recognizer.rotation() - last_rotation)
+                },
+                UIGestureRecognizerState::Cancelled | UIGestureRecognizerState::Failed => {
+                    self.ivars().rotation_last_delta.set(0.0);
+
+                    // Pass -delta so that action is reversed
+                    (TouchPhase::Cancelled, -recognizer.rotation())
+                },
+                state => panic!("unexpected recognizer state: {state:?}"),
+            };
+
+            // Make delta negative to match macos, convert to degrees
+            let gesture_event = EventWrapper::Window {
+                window_id: window.id(),
+                event: WindowEvent::RotationGesture {
+                    device_id: None,
+                    delta: -delta.to_degrees() as _,
+                    phase,
+                },
+            };
+
+            let mtm = MainThreadMarker::new().unwrap();
+            app_state::handle_nonuser_event(mtm, gesture_event);
+        }
+
+        #[unsafe(method(panGesture:))]
+        fn pan_gesture(&self, recognizer: &UIPanGestureRecognizer) {
+            let _entered = debug_span!("panGesture:").entered();
+            let window = self.window().unwrap();
+
+            let translation = recognizer.translationInView(Some(self));
+
+            let (phase, dx, dy) = match recognizer.state() {
+                UIGestureRecognizerState::Began => {
+                    self.ivars().pan_last_delta.set(translation);
+
+                    (TouchPhase::Started, 0.0, 0.0)
+                },
+                UIGestureRecognizerState::Changed => {
+                    let last_pan: CGPoint = self.ivars().pan_last_delta.replace(translation);
+
+                    let dx = translation.x - last_pan.x;
+                    let dy = translation.y - last_pan.y;
+
+                    (TouchPhase::Moved, dx, dy)
+                },
+                UIGestureRecognizerState::Ended => {
+                    let last_pan: CGPoint =
+                        self.ivars().pan_last_delta.replace(CGPoint { x: 0.0, y: 0.0 });
+
+                    let dx = translation.x - last_pan.x;
+                    let dy = translation.y - last_pan.y;
+
+                    (TouchPhase::Ended, dx, dy)
+                },
+                UIGestureRecognizerState::Cancelled | UIGestureRecognizerState::Failed => {
+                    let last_pan: CGPoint =
+                        self.ivars().pan_last_delta.replace(CGPoint { x: 0.0, y: 0.0 });
+
+                    // Pass -delta so that action is reversed
+                    (TouchPhase::Cancelled, -last_pan.x, -last_pan.y)
+                },
+                state => panic!("unexpected recognizer state: {state:?}"),
+            };
+
+            let gesture_event = EventWrapper::Window {
+                window_id: window.id(),
+                event: WindowEvent::PanGesture {
+                    device_id: None,
+                    delta: PhysicalPosition::new(dx as _, dy as _),
+                    phase,
+                },
+            };
+
+            let mtm = MainThreadMarker::new().unwrap();
+            app_state::handle_nonuser_event(mtm, gesture_event);
+        }
+
+        #[unsafe(method(canBecomeFirstResponder))]
+        fn can_become_first_responder(&self) -> bool {
+            let _entered = trace_span!("canBecomeFirstResponder").entered();
+            true
+        }
+    }
+
+    unsafe impl NSObjectProtocol for WingyView {}
+
+    unsafe impl UIGestureRecognizerDelegate for WingyView {
+        #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
+        fn should_recognize_simultaneously(
+            &self,
+            _gesture_recognizer: &UIGestureRecognizer,
+            _other_gesture_recognizer: &UIGestureRecognizer,
+        ) -> bool {
+            let _entered = trace_span!(
+                "gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:"
+            )
+            .entered();
+            true
+        }
+    }
+
+    // SAFETY: WingyView and its retained, non-displayed UIKit text store are
+    // main-thread-only. Each selector uses the exact UIKit protocol signature;
+    // UIKit owns position/range objects and the delegate property remains weak.
+    unsafe impl UITextInputTraits for WingyView {
+        #[unsafe(method(isSecureTextEntry))]
+        fn secure_text_entry(&self) -> bool {
+            self.native_text().isSecureTextEntry()
+        }
+        #[unsafe(method(keyboardType))]
+        fn keyboard_type(&self) -> UIKeyboardType {
+            self.native_text().keyboardType()
+        }
+        #[unsafe(method(autocorrectionType))]
+        fn autocorrection_type(&self) -> UITextAutocorrectionType {
+            self.native_text().autocorrectionType()
+        }
+        #[unsafe(method(spellCheckingType))]
+        fn spell_checking_type(&self) -> UITextSpellCheckingType {
+            self.native_text().spellCheckingType()
+        }
+        #[unsafe(method(autocapitalizationType))]
+        fn autocapitalization_type(&self) -> UITextAutocapitalizationType {
+            self.native_text().autocapitalizationType()
+        }
+    }
+
+    unsafe impl UIKeyInput for WingyView {
+        #[unsafe(method(hasText))]
+        fn has_text(&self) -> bool {
+            let _entered = debug_span!("hasText").entered();
+            true
+        }
+
+        #[unsafe(method(insertText:))]
+        fn insert_text(&self, text: &NSString) {
+            let _entered = debug_span!("insertText:").entered();
+            self.native_insert_text(text)
+        }
+
+        #[unsafe(method(deleteBackward))]
+        fn delete_backward(&self) {
+            let _entered = debug_span!("deleteBackward").entered();
+            self.native_delete_backward()
+        }
+    }
+    // SAFETY: Signatures are UIKit's UITextInput ABI. All opaque positions and
+    // ranges belong to the retained UIKit text store and are forwarded without
+    // reinterpretation. No references escape the main-thread view lifetime.
+    unsafe impl UITextInput for WingyView {
+        #[unsafe(method_id(textInRange:))]
+        fn text_in_range(&self, range: &UITextRange) -> Option<Retained<NSString>> {
+            self.native_text().textInRange(range)
+        }
+        #[unsafe(method(replaceRange:withText:))]
+        fn replace_range_with_text(&self, range: &UITextRange, text: &NSString) {
+            self.native_replace_range(range, text);
+        }
+        #[unsafe(method_id(selectedTextRange))]
+        fn selected_text_range(&self) -> Option<Retained<UITextRange>> {
+            self.native_text().selectedTextRange()
+        }
+        #[unsafe(method(setSelectedTextRange:))]
+        fn set_selected_text_range(&self, selected_text_range: Option<&UITextRange>) {
+            if self.native_text().markedTextRange().is_some() {
+                self.native_text().setSelectedTextRange(selected_text_range);
+                self.emit_ime(self.ivars().text_input.preedit());
+            }
+        }
+        #[unsafe(method_id(markedTextRange))]
+        fn marked_text_range(&self) -> Option<Retained<UITextRange>> {
+            self.native_text().markedTextRange()
+        }
+        #[unsafe(method_id(markedTextStyle))]
+        fn marked_text_style(
+            &self,
+        ) -> Option<Retained<NSDictionary<NSAttributedStringKey, AnyObject>>> {
+            self.native_text().markedTextStyle()
+        }
+        #[unsafe(method(setMarkedTextStyle:))]
+        unsafe fn set_marked_text_style(
+            &self,
+            marked_text_style: Option<&NSDictionary<NSAttributedStringKey, AnyObject>>,
+        ) {
+            // SAFETY: The typed dictionary is forwarded unchanged to the same UIKit protocol.
+            unsafe { self.native_text().setMarkedTextStyle(marked_text_style) }
+        }
+        #[unsafe(method(setMarkedText:selectedRange:))]
+        fn set_marked_text_selected_range(
+            &self,
+            marked_text: Option<&NSString>,
+            selected_range: NSRange,
+        ) {
+            self.native_set_marked(marked_text, selected_range);
+        }
+        #[unsafe(method(unmarkText))]
+        fn unmark_text(&self) {
+            self.native_unmark();
+        }
+        #[unsafe(method_id(beginningOfDocument))]
+        fn beginning_of_document(&self) -> Retained<UITextPosition> {
+            self.native_text().beginningOfDocument()
+        }
+        #[unsafe(method_id(endOfDocument))]
+        fn end_of_document(&self) -> Retained<UITextPosition> {
+            self.native_text().endOfDocument()
+        }
+        #[unsafe(method_id(textRangeFromPosition:toPosition:))]
+        fn text_range_from_position_to_position(
+            &self,
+            from_position: &UITextPosition,
+            to_position: &UITextPosition,
+        ) -> Option<Retained<UITextRange>> {
+            self.native_text().textRangeFromPosition_toPosition(from_position, to_position)
+        }
+        #[unsafe(method_id(positionFromPosition:offset:))]
+        fn position_from_position_offset(
+            &self,
+            position: &UITextPosition,
+            offset: NSInteger,
+        ) -> Option<Retained<UITextPosition>> {
+            self.native_text().positionFromPosition_offset(position, offset)
+        }
+        #[unsafe(method_id(positionFromPosition:inDirection:offset:))]
+        fn position_from_position_in_direction_offset(
+            &self,
+            position: &UITextPosition,
+            direction: UITextLayoutDirection,
+            offset: NSInteger,
+        ) -> Option<Retained<UITextPosition>> {
+            self.native_text().positionFromPosition_inDirection_offset(position, direction, offset)
+        }
+        #[unsafe(method(comparePosition:toPosition:))]
+        fn compare_position_to_position(
+            &self,
+            position: &UITextPosition,
+            other: &UITextPosition,
+        ) -> NSComparisonResult {
+            self.native_text().comparePosition_toPosition(position, other)
+        }
+        #[unsafe(method(offsetFromPosition:toPosition:))]
+        fn offset_from_position_to_position(
+            &self,
+            from: &UITextPosition,
+            to_position: &UITextPosition,
+        ) -> NSInteger {
+            self.native_text().offsetFromPosition_toPosition(from, to_position)
+        }
+        #[unsafe(method_id(inputDelegate))]
+        fn input_delegate(&self) -> Option<Retained<ProtocolObject<dyn UITextInputDelegate>>> {
+            self.ivars().text_input.delegate.borrow().as_ref().and_then(|weak| weak.load())
+        }
+        #[unsafe(method(setInputDelegate:))]
+        fn set_input_delegate(
+            &self,
+            input_delegate: Option<&ProtocolObject<dyn UITextInputDelegate>>,
+        ) {
+            *self.ivars().text_input.delegate.borrow_mut() =
+                input_delegate.map(objc2::rc::Weak::new)
+        }
+        #[unsafe(method_id(tokenizer))]
+        fn tokenizer(&self) -> Retained<ProtocolObject<dyn UITextInputTokenizer>> {
+            self.native_text().tokenizer()
+        }
+        #[unsafe(method_id(positionWithinRange:farthestInDirection:))]
+        fn position_within_range_farthest_in_direction(
+            &self,
+            range: &UITextRange,
+            direction: UITextLayoutDirection,
+        ) -> Option<Retained<UITextPosition>> {
+            self.native_text().positionWithinRange_farthestInDirection(range, direction)
+        }
+        #[unsafe(method_id(characterRangeByExtendingPosition:inDirection:))]
+        fn character_range_by_extending_position_in_direction(
+            &self,
+            position: &UITextPosition,
+            direction: UITextLayoutDirection,
+        ) -> Option<Retained<UITextRange>> {
+            self.native_text().characterRangeByExtendingPosition_inDirection(position, direction)
+        }
+        #[unsafe(method(baseWritingDirectionForPosition:inDirection:))]
+        fn base_writing_direction(
+            &self,
+            position: &UITextPosition,
+            direction: UITextStorageDirection,
+        ) -> NSWritingDirection {
+            self.native_text().baseWritingDirectionForPosition_inDirection(position, direction)
+        }
+        #[unsafe(method(setBaseWritingDirection:forRange:))]
+        fn set_base_writing_direction(&self, direction: NSWritingDirection, range: &UITextRange) {
+            self.native_text().setBaseWritingDirection_forRange(direction, range)
+        }
+        #[unsafe(method(firstRectForRange:))]
+        fn first_rect_for_range(&self, range: &UITextRange) -> CGRect {
+            let _ = range;
+            self.ivars().text_input.caret.get()
+        }
+        #[unsafe(method(caretRectForPosition:))]
+        fn caret_rect_for_position(&self, position: &UITextPosition) -> CGRect {
+            let _ = position;
+            self.ivars().text_input.caret.get()
+        }
+        #[unsafe(method_id(selectionRectsForRange:))]
+        fn selection_rects_for_range(
+            &self,
+            range: &UITextRange,
+        ) -> Retained<NSArray<UITextSelectionRect>> {
+            let _ = range;
+            NSArray::new()
+        }
+        #[unsafe(method_id(closestPositionToPoint:))]
+        fn closest_position_to_point(&self, point: CGPoint) -> Option<Retained<UITextPosition>> {
+            let _ = point;
+            None
+        }
+        #[unsafe(method_id(closestPositionToPoint:withinRange:))]
+        fn closest_position_to_point_within_range(
+            &self,
+            point: CGPoint,
+            range: &UITextRange,
+        ) -> Option<Retained<UITextPosition>> {
+            let _ = (point, range);
+            None
+        }
+        #[unsafe(method_id(characterRangeAtPoint:))]
+        fn character_range_at_point(&self, point: CGPoint) -> Option<Retained<UITextRange>> {
+            let _ = point;
+            None
+        }
+    }
+);
+
+impl WingyView {
+    fn native_text(&self) -> &objc2_ui_kit::UITextView {
+        &self.ivars().text_input.backing
+    }
+    pub(crate) fn update_ime(&self, data: wingy_core::window::ImeRequestData) {
+        let notify =
+            data.surrounding_text.is_some() && self.native_text().markedTextRange().is_none();
+        let delegate =
+            self.ivars().text_input.delegate.borrow().as_ref().and_then(|weak| weak.load());
+        let input = ProtocolObject::from_ref(self);
+        if notify && let Some(delegate) = &delegate {
+            delegate.textWillChange(Some(input));
+            delegate.selectionWillChange(Some(input));
+        }
+        let changed = self.ivars().text_input.update(data, self.contentScaleFactor() as f64);
+        if changed && self.isFirstResponder() {
+            self.reloadInputViews();
+        }
+        if notify && let Some(delegate) = &delegate {
+            delegate.textDidChange(Some(input));
+            delegate.selectionDidChange(Some(input));
+        }
+    }
+    pub(crate) fn enable_ime(&self, data: wingy_core::window::ImeRequestData) {
+        self.ivars().text_input.enabled.set(true);
+        self.update_ime(data);
+        self.emit_ime(Ime::Enabled);
+        self.becomeFirstResponder();
+    }
+    pub(crate) fn disable_ime(&self) {
+        if self.ivars().text_input.enabled.replace(false) {
+            self.ivars().text_input.clear();
+            self.emit_ime(Ime::Preedit(String::new(), Some((0, 0))));
+            self.emit_ime(Ime::Disabled);
+            self.resignFirstResponder();
+        }
+    }
+    fn emit_ime(&self, event: Ime) {
+        let Some(window) = self.window() else {
+            return;
+        };
+        app_state::handle_nonuser_event(
+            MainThreadMarker::from(self),
+            EventWrapper::Window { window_id: window.id(), event: WindowEvent::Ime(event) },
+        );
+    }
+    fn native_set_marked(&self, text: Option<&NSString>, selected: NSRange) {
+        if !self.ivars().text_input.enabled.get() {
+            return;
+        }
+        let value = text.map(|text| text.to_string()).unwrap_or_default();
+        if value.len() >= wingy_core::window::ImeSurroundingText::MAX_TEXT_BYTES
+            || crate::text_input_model::selected_bytes(&value, selected.location, selected.length)
+                .is_none()
+        {
+            return;
+        }
+        self.native_text().setMarkedText_selectedRange(text, selected);
+        self.finish_native_traits();
+        self.emit_ime(self.ivars().text_input.preedit());
+    }
+    fn native_unmark(&self) {
+        let marked = self.ivars().text_input.marked();
+        self.native_text().unmarkText();
+        self.finish_native_traits();
+        if let Some(text) = marked {
+            if text.is_empty() {
+                self.emit_ime(Ime::Preedit(text, Some((0, 0))));
+            } else {
+                self.emit_ime(Ime::Commit(text));
+            }
+        }
+    }
+    fn finish_native_traits(&self) {
+        if self.ivars().text_input.apply_pending_purpose() && self.isFirstResponder() {
+            self.reloadInputViews();
+        }
+    }
+    fn native_insert_text(&self, text: &NSString) {
+        if !self.ivars().text_input.enabled.get() {
+            return;
+        }
+        self.native_text().insertText(text);
+        self.finish_native_traits();
+        let value = text.to_string();
+        if value == "\n" {
+            self.handle_insert_text(text);
+        } else {
+            self.emit_ime(Ime::Commit(value));
+        }
+    }
+    fn native_delete_backward(&self) {
+        if !self.ivars().text_input.enabled.get() {
+            return;
+        }
+        let composing = self.native_text().markedTextRange().is_some();
+        self.native_text().deleteBackward();
+        self.finish_native_traits();
+        if composing {
+            self.emit_ime(self.ivars().text_input.preedit());
+        } else {
+            self.handle_delete_backward();
+        }
+    }
+    fn native_replace_range(&self, range: &UITextRange, text: &NSString) {
+        if !self.ivars().text_input.enabled.get() {
+            return;
+        }
+        let composing = self.native_text().markedTextRange().is_some();
+        // Unsolicited selection/autocorrection outside the application's current
+        // selection cannot be expressed by Wingy's existing IME contract. Do not
+        // silently edit a different range in the application. Marked text and
+        // replacement of the current selected range remain supported.
+        if !composing {
+            let begin = self.native_text().beginningOfDocument();
+            let start = self.native_text().offsetFromPosition_toPosition(&begin, &range.start());
+            let end = self.native_text().offsetFromPosition_toPosition(&begin, &range.end());
+            let selected = self.ivars().text_input.selection();
+            if usize::try_from(start).ok() != Some(selected.location)
+                || usize::try_from(end).ok() != selected.location.checked_add(selected.length)
+            {
+                return;
+            }
+        }
+        self.native_text().replaceRange_withText(range, text);
+        if composing && self.native_text().markedTextRange().is_some() {
+            self.emit_ime(self.ivars().text_input.preedit());
+        } else {
+            self.emit_ime(Ime::Commit(text.to_string()));
+        }
+    }
+
+    pub(crate) fn new(
+        mtm: MainThreadMarker,
+        scale_factor: Option<f64>,
+        frame: CGRect,
+    ) -> Retained<Self> {
+        let this = mtm.alloc().set_ivars(WingyViewState {
+            text_input: crate::text_input::TextInput::new(mtm),
+            pinch_gesture_recognizer: RefCell::new(None),
+            doubletap_gesture_recognizer: RefCell::new(None),
+            rotation_gesture_recognizer: RefCell::new(None),
+            pan_gesture_recognizer: RefCell::new(None),
+
+            rotation_last_delta: Cell::new(0.0),
+            pinch_last_delta: Cell::new(0.0),
+            pan_last_delta: Cell::new(CGPoint { x: 0.0, y: 0.0 }),
+
+            primary_finger: Cell::new(None),
+            fingers: Cell::new(0),
+        });
+        let this: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
+
+        this.setMultipleTouchEnabled(true);
+
+        if let Some(scale_factor) = scale_factor {
+            this.setContentScaleFactor(scale_factor as _);
+        }
+
+        this
+    }
+
+    fn window(&self) -> Option<Retained<WingyUIWindow>> {
+        // `WingyView`s should always be installed in a `WingyUIWindow`
+        (**self).window().map(|window| window.downcast().unwrap())
+    }
+
+    pub(crate) fn recognize_pinch_gesture(&self, should_recognize: bool) {
+        let mtm = MainThreadMarker::from(self);
+        if should_recognize {
+            if self.ivars().pinch_gesture_recognizer.borrow().is_none() {
+                let pinch = unsafe {
+                    UIPinchGestureRecognizer::initWithTarget_action(
+                        mtm.alloc(),
+                        Some(self),
+                        Some(sel!(pinchGesture:)),
+                    )
+                };
+                pinch.setDelegate(Some(ProtocolObject::from_ref(self)));
+                self.addGestureRecognizer(&pinch);
+                self.ivars().pinch_gesture_recognizer.replace(Some(pinch));
+            }
+        } else if let Some(recognizer) = self.ivars().pinch_gesture_recognizer.take() {
+            self.removeGestureRecognizer(&recognizer);
+        }
+    }
+
+    pub(crate) fn recognize_pan_gesture(
+        &self,
+        should_recognize: bool,
+        minimum_number_of_touches: u8,
+        maximum_number_of_touches: u8,
+    ) {
+        let mtm = MainThreadMarker::from(self);
+        if should_recognize {
+            if self.ivars().pan_gesture_recognizer.borrow().is_none() {
+                let pan = unsafe {
+                    UIPanGestureRecognizer::initWithTarget_action(
+                        mtm.alloc(),
+                        Some(self),
+                        Some(sel!(panGesture:)),
+                    )
+                };
+                pan.setDelegate(Some(ProtocolObject::from_ref(self)));
+                pan.setMinimumNumberOfTouches(minimum_number_of_touches as _);
+                pan.setMaximumNumberOfTouches(maximum_number_of_touches as _);
+                self.addGestureRecognizer(&pan);
+                self.ivars().pan_gesture_recognizer.replace(Some(pan));
+            }
+        } else if let Some(recognizer) = self.ivars().pan_gesture_recognizer.take() {
+            self.removeGestureRecognizer(&recognizer);
+        }
+    }
+
+    pub(crate) fn recognize_doubletap_gesture(&self, should_recognize: bool) {
+        let mtm = MainThreadMarker::from(self);
+        if should_recognize {
+            if self.ivars().doubletap_gesture_recognizer.borrow().is_none() {
+                let tap = unsafe {
+                    UITapGestureRecognizer::initWithTarget_action(
+                        mtm.alloc(),
+                        Some(self),
+                        Some(sel!(doubleTapGesture:)),
+                    )
+                };
+                tap.setDelegate(Some(ProtocolObject::from_ref(self)));
+                tap.setNumberOfTapsRequired(2);
+                tap.setNumberOfTouchesRequired(1);
+                self.addGestureRecognizer(&tap);
+                self.ivars().doubletap_gesture_recognizer.replace(Some(tap));
+            }
+        } else if let Some(recognizer) = self.ivars().doubletap_gesture_recognizer.take() {
+            self.removeGestureRecognizer(&recognizer);
+        }
+    }
+
+    pub(crate) fn recognize_rotation_gesture(&self, should_recognize: bool) {
+        let mtm = MainThreadMarker::from(self);
+        if should_recognize {
+            if self.ivars().rotation_gesture_recognizer.borrow().is_none() {
+                let rotation = unsafe {
+                    UIRotationGestureRecognizer::initWithTarget_action(
+                        mtm.alloc(),
+                        Some(self),
+                        Some(sel!(rotationGesture:)),
+                    )
+                };
+                rotation.setDelegate(Some(ProtocolObject::from_ref(self)));
+                self.addGestureRecognizer(&rotation);
+                self.ivars().rotation_gesture_recognizer.replace(Some(rotation));
+            }
+        } else if let Some(recognizer) = self.ivars().rotation_gesture_recognizer.take() {
+            self.removeGestureRecognizer(&recognizer);
+        }
+    }
+
+    fn handle_touches(&self, touches: &NSSet<UITouch>) {
+        let window = self.window().unwrap();
+        let mut touch_events = Vec::new();
+        for touch in touches {
+            let logical_location = touch.locationInView(None);
+            let touch_type = touch.r#type();
+            let force = if available!(ios = 9.0, tvos = 9.0, visionos = 1.0) {
+                let use_force = match touch_type {
+                    UITouchType::Pencil => true,
+                    _ => {
+                        let trait_collection = self.traitCollection();
+                        trait_collection.forceTouchCapability() == UIForceTouchCapability::Available
+                    },
+                };
+
+                if use_force {
+                    let force = touch.force();
+                    let max_possible_force = touch.maximumPossibleForce();
+                    Some(Force::Calibrated {
+                        force: force as _,
+                        max_possible_force: max_possible_force as _,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let touch_id = Retained::as_ptr(&touch) as usize;
+            let phase = touch.phase();
+            let position = {
+                let scale_factor = self.contentScaleFactor();
+                PhysicalPosition::from_logical::<(f64, f64), f64>(
+                    (logical_location.x as _, logical_location.y as _),
+                    scale_factor as f64,
+                )
+            };
+            let window_id = window.id();
+            let finger_id = FingerId::from_raw(touch_id);
+
+            let ivars = self.ivars();
+
+            match phase {
+                UITouchPhase::Began => {
+                    let primary = if let UITouchType::Pencil = touch_type {
+                        true
+                    } else {
+                        ivars.fingers.set(ivars.fingers.get() + 1);
+                        // Keep the primary finger around until we clear all the fingers to
+                        // recognize it when user briefly removes it.
+                        match ivars.primary_finger.get() {
+                            Some(primary_id) => primary_id == finger_id,
+                            None => {
+                                debug_assert_eq!(
+                                    ivars.fingers.get(),
+                                    1,
+                                    "number of fingers were not counted correctly"
+                                );
+                                ivars.primary_finger.set(Some(finger_id));
+                                true
+                            },
+                        }
+                    };
+
+                    touch_events.push(EventWrapper::Window {
+                        window_id,
+                        event: WindowEvent::PointerEntered {
+                            device_id: None,
+                            primary,
+                            position,
+                            kind: if let UITouchType::Pencil = touch_type {
+                                PointerKind::TabletTool(TabletToolKind::Pencil)
+                            } else {
+                                PointerKind::Touch(finger_id)
+                            },
+                        },
+                    });
+                    touch_events.push(EventWrapper::Window {
+                        window_id,
+                        event: WindowEvent::PointerButton {
+                            device_id: None,
+                            primary,
+                            state: ElementState::Pressed,
+                            position,
+                            button: if let UITouchType::Pencil = touch_type {
+                                let tool_data = self.tablet_tool_data_for_pencil(&touch);
+                                ButtonSource::TabletTool {
+                                    kind: TabletToolKind::Pencil,
+                                    button: TabletToolButton::Contact,
+                                    data: tool_data,
+                                }
+                            } else {
+                                ButtonSource::Touch { finger_id, force }
+                            },
+                            is_macos_activation_click: false,
+                        },
+                    });
+                },
+                UITouchPhase::Moved => {
+                    let (primary, source) = if let UITouchType::Pencil = touch_type {
+                        let tool_data = self.tablet_tool_data_for_pencil(&touch);
+                        (
+                            true,
+                            PointerSource::TabletTool {
+                                kind: TabletToolKind::Pencil,
+                                data: tool_data,
+                            },
+                        )
+                    } else {
+                        (
+                            ivars.primary_finger.get().unwrap() == finger_id,
+                            PointerSource::Touch { finger_id, force },
+                        )
+                    };
+
+                    touch_events.push(EventWrapper::Window {
+                        window_id,
+                        event: WindowEvent::PointerMoved {
+                            device_id: None,
+                            primary,
+                            position,
+                            source,
+                        },
+                    });
+                },
+                // 2 is UITouchPhase::Stationary and is not expected here
+                UITouchPhase::Ended | UITouchPhase::Cancelled => {
+                    let primary = if let UITouchType::Pencil = touch_type {
+                        true
+                    } else {
+                        ivars.fingers.set(ivars.fingers.get() - 1);
+                        let primary = ivars.primary_finger.get().unwrap() == finger_id;
+                        if ivars.fingers.get() == 0 {
+                            ivars.primary_finger.set(None);
+                        }
+                        primary
+                    };
+
+                    if let UITouchPhase::Ended = phase {
+                        touch_events.push(EventWrapper::Window {
+                            window_id,
+                            event: WindowEvent::PointerButton {
+                                device_id: None,
+                                primary,
+                                state: ElementState::Released,
+                                position,
+                                button: if let UITouchType::Pencil = touch_type {
+                                    let tool_data = self.tablet_tool_data_for_pencil(&touch);
+                                    ButtonSource::TabletTool {
+                                        kind: TabletToolKind::Pencil,
+                                        button: TabletToolButton::Contact,
+                                        data: tool_data,
+                                    }
+                                } else {
+                                    ButtonSource::Touch { finger_id, force }
+                                },
+                                is_macos_activation_click: false,
+                            },
+                        });
+                    }
+
+                    touch_events.push(EventWrapper::Window {
+                        window_id,
+                        event: WindowEvent::PointerLeft {
+                            device_id: None,
+                            primary,
+                            position: Some(position),
+                            kind: if let UITouchType::Pencil = touch_type {
+                                PointerKind::TabletTool(TabletToolKind::Pencil)
+                            } else {
+                                PointerKind::Touch(finger_id)
+                            },
+                        },
+                    });
+                },
+                _ => panic!("unexpected touch phase: {phase:?}"),
+            }
+        }
+        let mtm = MainThreadMarker::new().unwrap();
+        app_state::handle_nonuser_events(mtm, touch_events);
+    }
+
+    fn tablet_tool_data_for_pencil(&self, touch: &UITouch) -> TabletToolData {
+        let force = if available!(ios = 9.0, tvos = 9.0, visionos = 1.0) {
+            let force_val = touch.force();
+            let max_force = touch.maximumPossibleForce();
+            Some(Force::Calibrated { force: force_val as _, max_possible_force: max_force as _ })
+        } else {
+            None
+        };
+
+        let angle = if available!(ios = 9.1, tvos = 9.0, visionos = 1.0) {
+            let altitude = touch.altitudeAngle();
+            let azimuth = touch.azimuthAngleInView(Some(self));
+            Some(TabletToolAngle { altitude: altitude as _, azimuth: azimuth as _ })
+        } else {
+            None
+        };
+
+        TabletToolData {
+            force,
+            tangential_force: None, // iOS doesn't provide barrel pressure
+            twist: None,            // iOS doesn't provide rotation/twist
+            tilt: None,             // Will be calculated from angle if needed
+            angle,
+        }
+    }
+
+    fn handle_insert_text(&self, text: &NSString) {
+        let window = self.window().unwrap();
+        let window_id = window.id();
+        let mtm = MainThreadMarker::new().unwrap();
+        // send individual events for each character
+        app_state::handle_nonuser_events(
+            mtm,
+            text.to_string().chars().flat_map(|c| {
+                let text = smol_str::SmolStr::from_iter([c]);
+                // Emit both press and release events
+                [ElementState::Pressed, ElementState::Released].map(|state| EventWrapper::Window {
+                    window_id,
+                    event: WindowEvent::KeyboardInput {
+                        device_id: None,
+                        event: KeyEvent {
+                            text: if state == ElementState::Pressed {
+                                Some(text.clone())
+                            } else {
+                                None
+                            },
+                            state,
+                            location: KeyLocation::Standard,
+                            repeat: false,
+                            logical_key: Key::Character(text.clone()),
+                            physical_key: PhysicalKey::Unidentified(NativeKeyCode::Unidentified),
+                            text_with_all_modifiers: if state == ElementState::Pressed {
+                                Some(text.clone())
+                            } else {
+                                None
+                            },
+                            key_without_modifiers: Key::Character(text.clone()),
+                        },
+                        is_synthetic: false,
+                    },
+                })
+            }),
+        );
+    }
+
+    fn handle_delete_backward(&self) {
+        let window = self.window().unwrap();
+        let window_id = window.id();
+        let mtm = MainThreadMarker::new().unwrap();
+        app_state::handle_nonuser_events(
+            mtm,
+            [ElementState::Pressed, ElementState::Released].map(|state| EventWrapper::Window {
+                window_id,
+                event: WindowEvent::KeyboardInput {
+                    device_id: None,
+                    event: KeyEvent {
+                        state,
+                        logical_key: Key::Named(NamedKey::Backspace),
+                        physical_key: PhysicalKey::Code(KeyCode::Backspace),
+                        repeat: false,
+                        location: KeyLocation::Standard,
+                        text: None,
+                        text_with_all_modifiers: None,
+                        key_without_modifiers: Key::Named(NamedKey::Backspace),
+                    },
+                    is_synthetic: false,
+                },
+            }),
+        );
+    }
+}

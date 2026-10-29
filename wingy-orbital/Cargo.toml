@@ -1,0 +1,26 @@
+[package]
+description = "Wingy's Orbital/Redox backend"
+documentation = "https://docs.rs/wingy-orbital"
+edition.workspace = true
+license.workspace = true
+name = "wingy-orbital"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+serde = ["dep:serde", "bitflags/serde", "smol_str/serde", "dpi/serde"]
+
+[dependencies]
+bitflags.workspace = true
+dpi.workspace = true
+rwh_06.workspace = true
+serde = { workspace = true, optional = true }
+smol_str.workspace = true
+tracing.workspace = true
+wingy-core.workspace = true
+
+# Platform-specific
+libredox.workspace = true
+orbclient.workspace = true
+redox_event.workspace = true

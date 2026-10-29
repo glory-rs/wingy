@@ -1,11 +1,11 @@
 # Contribution Guidelines
 
-This document contains guidelines for contributing code to winit. It has to be
+This document contains guidelines for contributing code to wingy. It has to be
 followed in order for your patch to be approved and applied.
 
 ## Contributing
 
-Anyone can contribute to winit, however given that it's a cross platform
+Anyone can contribute to wingy, however given that it's a cross platform
 windowing toolkit getting certain changes incorporated could be challenging.
 
 To save your time it's wise to check already opened [pull requests][prs] and
@@ -68,17 +68,17 @@ close your PR in order to prevent work being done on it.
 
 ## Maintainers
 
-Winit has plenty of maintainers with different backgrounds, different time
-available to work on Winit, and reasons to be winit maintainer in the first
-place. To ensure that Winit's code quality does not decrease over time and to
-make it easier to teach new maintainers the "winit way of doing things" the
+Wingy has plenty of maintainers with different backgrounds, different time
+available to work on Wingy, and reasons to be wingy maintainer in the first
+place. To ensure that Wingy's code quality does not decrease over time and to
+make it easier to teach new maintainers the "wingy way of doing things" the
 common policies and routines are defined in this section.
 
 The current maintainers for each platform are listed in [this file][CODEOWNERS].
 
 ### Contributions handling
 
-The maintainers must ensure that the external contributions meet Winit's
+The maintainers must ensure that the external contributions meet Wingy's
 quality standards. If it's not, it **is the maintainer's responsibility** to
 bring it on par, which includes:
 
@@ -105,14 +105,14 @@ don't feel discouraged contributing, for example:
     the proposed changes to move forward with something. In such cases the
     maintainer must preserve attribution with `Co-authored-by`, `Suggested-by`,
     or keep the original committer.
-  - Rebase their work for them when massive changes to the Winit codebase were
+  - Rebase their work for them when massive changes to the Wingy codebase were
     introduced.
 
 When reviewing code of other maintainers all of the above is on the maintainer
 who submitted the patch. Interested maintainers could help push the work over
 the finish line, but teaching other maintainers should be preferred.
 
-For a _regular_ contributor to winit, the maintainer should slowly start
+For a _regular_ contributor to wingy, the maintainer should slowly start
 requiring contributor to match *maintainer* quality standards when writing
 patches and commit messages.
 
@@ -135,7 +135,7 @@ other admin before making the change.
 
 ### Release process
 
-Given that winit is a widely used library, we should be able to make a patch
+Given that wingy is a widely used library, we should be able to make a patch
 releases at any time we want without blocking the development of new features.
 
 To achieve these goals, a new branch is created for every new release. Releases

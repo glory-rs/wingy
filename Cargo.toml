@@ -1,35 +1,35 @@
 [workspace]
-default-members = ["winit"]
-members = ["dpi", "winit*"]
+default-members = ["wingy"]
+members = ["dpi", "wingy*"]
 resolver = "3"
 
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/rust-windowing/winit"
+repository = "https://github.com/glory-rs/wingy"
 rust-version = "1.86"
 version = "0.31.0-beta.4"
 
 [workspace.dependencies]
 # Workspace dependencies.
-# `winit` has no version here to allow using it in dev deps for docs.
-winit = { path = "winit" }
-winit-android = { version = "=0.31.0-beta.4", path = "winit-android" }
-winit-appkit = { version = "=0.31.0-beta.4", path = "winit-appkit" }
-winit-common = { version = "=0.31.0-beta.4", path = "winit-common" }
-winit-core = { version = "=0.31.0-beta.4", path = "winit-core" }
-winit-orbital = { version = "=0.31.0-beta.4", path = "winit-orbital" }
-winit-uikit = { version = "=0.31.0-beta.4", path = "winit-uikit" }
-winit-wayland = { version = "=0.31.0-beta.4", path = "winit-wayland", default-features = false }
-winit-web = { version = "=0.31.0-beta.4", path = "winit-web" }
-winit-win32 = { version = "=0.31.0-beta.4", path = "winit-win32" }
-winit-x11 = { version = "=0.31.0-beta.4", path = "winit-x11" }
+# `wingy` has no version here to allow using it in dev deps for docs.
+wingy = { path = "wingy" }
+wingy-android = { version = "=0.31.0-beta.4", path = "wingy-android" }
+wingy-appkit = { version = "=0.31.0-beta.4", path = "wingy-appkit" }
+wingy-common = { version = "=0.31.0-beta.4", path = "wingy-common" }
+wingy-core = { version = "=0.31.0-beta.4", path = "wingy-core" }
+wingy-orbital = { version = "=0.31.0-beta.4", path = "wingy-orbital" }
+wingy-uikit = { version = "=0.31.0-beta.4", path = "wingy-uikit" }
+wingy-wayland = { version = "=0.31.0-beta.4", path = "wingy-wayland", default-features = false }
+wingy-web = { version = "=0.31.0-beta.4", path = "wingy-web" }
+wingy-win32 = { version = "=0.31.0-beta.4", path = "wingy-win32" }
+wingy-x11 = { version = "=0.31.0-beta.4", path = "wingy-x11" }
 
 # Core dependencies.
 bitflags = "2"
 cfg_aliases = "0.2.2"
 cursor-icon = "1.1.0"
-dpi = { version = "0.1.2", path = "dpi" }
+dpi = { package = "wingy-dpi", version = "=0.1.2", path = "dpi" }
 keyboard-types = "0.8.0"
 mint = "0.5.6"
 rwh_06 = { package = "raw-window-handle", version = "0.6", features = ["std"] }

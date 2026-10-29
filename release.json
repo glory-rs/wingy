@@ -1,0 +1,38 @@
+{
+  "repository": "glory-rs/wingy",
+  "title": "Wingy",
+  "tag_prefix": "wingy-v",
+  "allowed_prefixes": [
+    "wingy"
+  ],
+  "packages": [
+    "wingy-dpi",
+    "wingy-core",
+    "wingy-common",
+    "wingy-android",
+    "wingy-appkit",
+    "wingy-orbital",
+    "wingy-uikit",
+    "wingy-wayland",
+    "wingy-web",
+    "wingy-win32",
+    "wingy-x11",
+    "wingy"
+  ],
+  "cross_target_packages": [
+    "wingy-android",
+    "wingy-appkit",
+    "wingy-orbital",
+    "wingy-uikit",
+    "wingy-wayland",
+    "wingy-web",
+    "wingy-x11"
+  ],
+  "required_release_jobs": [
+    "checks / validate-windows",
+    "checks / validate-linux",
+    "checks / validate-apple",
+    "checks / validate-android",
+    "checks / validate-web-redox"
+  ]
+}

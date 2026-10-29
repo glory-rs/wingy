@@ -26,10 +26,10 @@ body:
     validations:
       required: true
   - type: textarea
-    id: winit-version
+    id: wingy-version
     attributes:
-      label: Winit version
-      description: What version of Winit are you using?
+      label: Wingy version
+      description: What version of Wingy are you using?
       placeholder: 0.29.11
     validations:
       required: true

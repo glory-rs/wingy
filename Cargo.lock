@@ -425,14 +425,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
-name = "dpi"
-version = "0.1.2"
-dependencies = [
- "mint",
- "serde",
-]
-
-[[package]]
 name = "dtor"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2221,14 +2213,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "winit"
+name = "wingy"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "cfg_aliases",
  "console_error_panic_hook",
  "cursor-icon",
- "dpi",
  "image",
  "libc",
  "raw-window-handle",
@@ -2242,42 +2233,42 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-time",
- "winit-android",
- "winit-appkit",
- "winit-common",
- "winit-core",
- "winit-orbital",
- "winit-uikit",
- "winit-wayland",
- "winit-web",
- "winit-win32",
- "winit-x11",
+ "wingy-android",
+ "wingy-appkit",
+ "wingy-common",
+ "wingy-core",
+ "wingy-dpi",
+ "wingy-orbital",
+ "wingy-uikit",
+ "wingy-wayland",
+ "wingy-web",
+ "wingy-win32",
+ "wingy-x11",
 ]
 
 [[package]]
-name = "winit-android"
+name = "wingy-android"
 version = "0.31.0-beta.4"
 dependencies = [
  "android-activity",
  "bitflags",
- "dpi",
  "ndk",
  "raw-window-handle",
  "serde",
  "smol_str",
  "tracing",
- "winit",
- "winit-core",
+ "wingy",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-appkit"
+name = "wingy-appkit"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "block2 0.6.2",
  "dispatch2",
- "dpi",
  "objc2 0.6.5",
  "objc2-app-kit",
  "objc2-core-foundation",
@@ -2288,49 +2279,57 @@ dependencies = [
  "serde",
  "smol_str",
  "tracing",
- "winit",
- "winit-common",
- "winit-core",
+ "wingy",
+ "wingy-common",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-common"
+name = "wingy-common"
 version = "0.31.0-beta.4"
 dependencies = [
  "block2 0.6.2",
- "dpi",
  "memmap2",
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "smol_str",
  "tracing",
- "winit-core",
+ "wingy-core",
+ "wingy-dpi",
  "x11-dl",
  "xkbcommon-dl",
 ]
 
 [[package]]
-name = "winit-core"
+name = "wingy-core"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "cursor-icon",
- "dpi",
  "keyboard-types",
  "raw-window-handle",
  "serde",
  "smol_str",
  "web-time",
- "winit",
+ "wingy",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-orbital"
+name = "wingy-dpi"
+version = "0.1.2"
+dependencies = [
+ "mint",
+ "serde",
+]
+
+[[package]]
+name = "wingy-orbital"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
- "dpi",
  "libredox",
  "orbclient",
  "raw-window-handle",
@@ -2338,17 +2337,17 @@ dependencies = [
  "serde",
  "smol_str",
  "tracing",
- "winit-core",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-uikit"
+name = "wingy-uikit"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "block2 0.6.2",
  "dispatch2",
- "dpi",
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
@@ -2357,18 +2356,18 @@ dependencies = [
  "serde",
  "smol_str",
  "tracing",
- "winit-common",
- "winit-core",
+ "wingy-common",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-wayland"
+name = "wingy-wayland"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "calloop",
  "cursor-icon",
- "dpi",
  "foldhash",
  "libc",
  "memmap2",
@@ -2384,19 +2383,19 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-plasma",
- "winit-common",
- "winit-core",
+ "wingy-common",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-web"
+name = "wingy-web"
 version = "0.31.0-beta.4"
 dependencies = [
  "atomic-waker",
  "bitflags",
  "concurrent-queue",
  "cursor-icon",
- "dpi",
  "js-sys",
  "pin-project",
  "raw-window-handle",
@@ -2407,16 +2406,16 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
- "winit-core",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-win32"
+name = "wingy-win32"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "cursor-icon",
- "dpi",
  "percent-encoding",
  "raw-window-handle",
  "serde",
@@ -2424,20 +2423,20 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "windows-sys",
- "winit",
- "winit-common",
- "winit-core",
+ "wingy",
+ "wingy-common",
+ "wingy-core",
+ "wingy-dpi",
 ]
 
 [[package]]
-name = "winit-x11"
+name = "wingy-x11"
 version = "0.31.0-beta.4"
 dependencies = [
  "bitflags",
  "bytemuck",
  "calloop",
  "cursor-icon",
- "dpi",
  "libc",
  "percent-encoding",
  "raw-window-handle",
@@ -2445,9 +2444,10 @@ dependencies = [
  "serde",
  "smol_str",
  "tracing",
- "winit",
- "winit-common",
- "winit-core",
+ "wingy",
+ "wingy-common",
+ "wingy-core",
+ "wingy-dpi",
  "x11-dl",
  "x11rb 0.14.0",
  "xkbcommon-dl",

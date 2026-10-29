@@ -119,8 +119,8 @@ fn round(f: f64) -> f64 {
 /// Checks that the scale factor is a normal positive `f64`.
 ///
 /// All functions that take a scale factor assert that this will return `true`. If you're sourcing
-/// scale factors from anywhere other than winit, it's recommended to validate them using this
-/// function before passing them to winit; otherwise, you risk panics.
+/// scale factors from anywhere other than wingy, it's recommended to validate them using this
+/// function before passing them to wingy; otherwise, you risk panics.
 #[inline]
 pub fn validate_scale_factor(scale_factor: f64) -> bool {
     scale_factor.is_sign_positive() && scale_factor.is_normal()

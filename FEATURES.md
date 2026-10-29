@@ -1,6 +1,6 @@
-# Winit Scope
+# Wingy Scope
 
-Winit aims to expose an interface that abstracts over window creation and input handling and can
+Wingy aims to expose an interface that abstracts over window creation and input handling and can
 be used to create both games and applications. It supports the following main graphical platforms:
 - Desktop
   - Windows
@@ -14,30 +14,30 @@ be used to create both games and applications. It supports the following main gr
   - Android
 - Web
 
-Most platforms expose capabilities that cannot be meaningfully transposed onto others. Winit does not
+Most platforms expose capabilities that cannot be meaningfully transposed onto others. Wingy does not
 aim to support every single feature of every platform, but rather to abstract over the common features
-available everywhere. In this context, APIs exposed in winit can be split into different "support tiers":
+available everywhere. In this context, APIs exposed in wingy can be split into different "support tiers":
 
 - **Core:** Features that are essential to providing a well-formed abstraction over each platform's
   windowing and input APIs.
 - **Platform:** Platform-specific features that can't be meaningfully exposed through a common API and
-  cannot be implemented outside of Winit without exposing a significant amount of Winit's internals
-  or interfering with Winit's abstractions.
-- **Usability:** Features that are not strictly essential to Winit's functionality, but provide meaningful
+  cannot be implemented outside of Wingy without exposing a significant amount of Wingy's internals
+  or interfering with Wingy's abstractions.
+- **Usability:** Features that are not strictly essential to Wingy's functionality, but provide meaningful
   usability improvements and cannot be reasonably implemented in an external crate. These are
   generally optional and exposed through Cargo features.
 
-Core features are taken care of by the core Winit maintainers. Platform features are not.
+Core features are taken care of by the core Wingy maintainers. Platform features are not.
 When a platform feature is submitted, the submitter is considered the expert in the
 feature and may be asked to support the feature should it break in the future.
 
-Winit ***does not*** directly expose functionality for drawing inside windows or creating native
+Wingy ***does not*** directly expose functionality for drawing inside windows or creating native
 menus, but ***does*** commit to providing APIs that higher-level crates can use to implement that
 functionality.
 
 ## `1.0` and stability
 
-When all core features are implemented to the satisfaction of the Winit maintainers, Winit 1.0 will
+When all core features are implemented to the satisfaction of the Wingy maintainers, Wingy 1.0 will
 be released and the library will enter maintenance mode. For the most part, new core features will not
 be added past this point. New platform features may be accepted and exposed through point releases.
 
