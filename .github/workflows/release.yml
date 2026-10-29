@@ -13,7 +13,7 @@ jobs:
   publish:
     needs: checks
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     permissions:
       contents: write
       actions: read
@@ -23,6 +23,7 @@ jobs:
       RUSTUP_HOME: D:/BuildCache/wingy-release/rustup
       TEMP: D:/BuildCache/wingy-release/tmp
       TMP: D:/BuildCache/wingy-release/tmp
+      PYTHONPYCACHEPREFIX: D:/BuildCache/wingy-release/pycache
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_BUILD_JOBS: '2'

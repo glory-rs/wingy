@@ -1,5 +1,10 @@
 # Releasing Wingy
 
+The publisher inspects each archive before uploading. LICENSE and README must
+contain actual file contents, never link stubs such as `../LICENSE`. Preserve
+Git symlink and executable modes when renaming paths. A reversible archive check
+is available as `python scripts/release.py --check-package wingy-core`.
+
 `release.json` is the explicit dependency order and namespace allowlist. Versions remain
 the original fork versions, including platform/support packages with independent versions.
 
