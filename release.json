@@ -34,5 +34,8 @@
     "checks / validate-apple",
     "checks / validate-android",
     "checks / validate-web-redox"
-  ]
+  ],
+  "reused_package_commits": {
+    "wingy-dpi": "c89f50bfb0cd4f7e963f8bb990e2c78c52738e3d"
+  }
 }

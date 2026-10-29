@@ -2214,7 +2214,7 @@ dependencies = [
 
 [[package]]
 name = "wingy"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "cfg_aliases",
@@ -2248,7 +2248,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-android"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "android-activity",
  "bitflags",
@@ -2264,7 +2264,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-appkit"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "block2 0.6.2",
@@ -2287,7 +2287,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-common"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "block2 0.6.2",
  "memmap2",
@@ -2304,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-core"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "cursor-icon",
@@ -2327,7 +2327,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-orbital"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "libredox",
@@ -2343,7 +2343,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-uikit"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "block2 0.6.2",
@@ -2363,7 +2363,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-wayland"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "calloop",
@@ -2390,7 +2390,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-web"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "atomic-waker",
  "bitflags",
@@ -2412,7 +2412,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-win32"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "cursor-icon",
@@ -2431,7 +2431,7 @@ dependencies = [
 
 [[package]]
 name = "wingy-x11"
-version = "0.31.0-beta.4"
+version = "0.31.0"
 dependencies = [
  "bitflags",
  "bytemuck",

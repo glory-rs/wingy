@@ -5,8 +5,7 @@ contain actual file contents, never link stubs such as `../LICENSE`. Preserve
 Git symlink and executable modes when renaming paths. A reversible archive check
 is available as `python scripts/release.py --check-package wingy-core`.
 
-`release.json` is the explicit dependency order and namespace allowlist. Versions remain
-the original fork versions, including platform/support packages with independent versions.
+`release.json` is the explicit dependency order and namespace allowlist. Wingy and its platform packages use 0.31.0. Support packages with independent versions retain their own versions.
 
 1. Update source and Cargo.lock, run CI and `python scripts/release.py`.
 2. Commit all changes and tag the exact clean commit as `wingy-v0.31.0-beta.4`.
