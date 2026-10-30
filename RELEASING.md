@@ -1,5 +1,10 @@
 # Releasing Wingy
 
+The 2026-10-30 version bumps are unpublished development versions. Do not publish
+or create release tags for this change. Library, example and benchmark locks are
+local ignored files; generate and validate them without adding them to Git.
+
+
 The publisher inspects each archive before uploading. LICENSE and README must
 contain actual file contents, never link stubs such as `../LICENSE`. Preserve
 Git symlink and executable modes when renaming paths. A reversible archive check
@@ -7,8 +12,8 @@ is available as `python scripts/release.py --check-package wingy-core`.
 
 `release.json` is the explicit dependency order and namespace allowlist. Wingy and its platform packages use 0.31.0. Support packages with independent versions retain their own versions.
 
-1. Update source and Cargo.lock, run CI and `python scripts/release.py`.
-2. Commit all changes and tag the exact clean commit as `wingy-v0.31.0-beta.4`.
+1. Update source and the local Cargo.lock resolution, run CI and `python scripts/release.py`.
+2. Commit all changes and tag the exact clean commit as `wingy-v0.31.1-beta.4`.
 3. Push the tag. Release reuses the full CI workflow before publishing dependency-first.
 4. `CARGO_REGISTRY_TOKEN` must allow publishing and creation of these crate names.
 5. Confirm registry versions and GitHub release artifacts before updating consumers.

@@ -8,7 +8,7 @@ license = "Apache-2.0 AND MIT"
 name = "wingy-dpi"
 repository.workspace = true
 rust-version.workspace = true
-version = "0.1.2"
+version = "0.1.3"
 
 [features]
 default = ["std"]
