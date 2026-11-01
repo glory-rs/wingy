@@ -24,3 +24,10 @@ platform jobs of the same Actions release run before host verification may be sk
 
 On Windows, all Cargo homes, targets and compiler temporary files belong under D:/BuildCache.
 The daily/manual sync workflow updates only `upstream-main`, never maintained `main`.
+
+To retry an existing tag after a workflow-only repair, dispatch Release from main
+with that tag. Checks and publication both use its frozen commit; the tag is not
+moved. The initial archive gate checks the dependency-free DPI package; the
+publisher checks every remaining archive after its prerequisites are published.
+Windows checkouts preserve tracked symlinks so archives contain real license
+and README contents. All platform jobs remain required in the same release run.

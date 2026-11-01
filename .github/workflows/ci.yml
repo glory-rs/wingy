@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      release_ref:
+        description: Immutable product commit to validate
+        required: false
+        type: string
 permissions:
   contents: read
 jobs:
@@ -22,6 +27,9 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_BUILD_JOBS: '2'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.symlinks
+      GIT_CONFIG_VALUE_0: 'true'
     defaults:
       run:
         shell: pwsh
@@ -29,6 +37,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          ref: ${{ inputs.release_ref || github.sha }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.13'
@@ -51,7 +60,7 @@ jobs:
       - name: Validate publication archive on release tags
         if: startsWith(github.ref, 'refs/tags/wingy-v')
         run: |
-          python scripts/release.py --check-package wingy-core
+          python scripts/release.py --check-package wingy-dpi
           if ($LASTEXITCODE) { throw 'Archive contents failed' }
       - name: Tests and compilation
         run: |
@@ -81,6 +90,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.sha }}
       - name: Install compiler and platform libraries
         run: |
           rustup toolchain install 1.98.0 --profile minimal
@@ -103,6 +114,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.sha }}
       - name: Install compiler and UIKit target
         run: |
           rustup toolchain install 1.98.0 --profile minimal --target aarch64-apple-ios-sim
@@ -123,6 +136,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.sha }}
       - name: Install compiler and select the runner NDK
         shell: bash
         run: |
@@ -152,6 +167,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref || github.sha }}
       - name: Install compiler and targets
         run: |
           rustup toolchain install 1.98.0 --profile minimal --target wasm32-unknown-unknown,x86_64-unknown-redox
