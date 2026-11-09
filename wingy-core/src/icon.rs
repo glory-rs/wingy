@@ -105,3 +105,19 @@ impl From<RgbaIcon> for Icon {
         Self(Arc::new(value))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rgba_icon_accepts_valid_buffer() {
+        assert!(RgbaIcon::new(vec![0; 2 * 2 * PIXEL_SIZE], 2, 2).is_ok());
+    }
+
+    #[test]
+    fn rgba_icon_rejects_partial_pixel() {
+        let result = RgbaIcon::new(vec![0; 2 * 2 * PIXEL_SIZE - 1], 2, 2);
+        assert!(matches!(result, Err(BadIcon::ByteCountNotDivisibleBy4 { byte_count: 15 })));
+    }
+}

@@ -67,10 +67,12 @@ pub struct MimeType {
 const TEXT_URI_LIST: &str = "text/uri-list";
 // Plaintext
 const TEXT_PLAIN: &str = "text/plain";
-const TEXT_PLAIN_CHARSET_UTF8: &str = "text/plain; charset=utf-8";
+const TEXT_PLAIN_CHARSET_UTF8: &str = "text/plain;charset=utf-8";
+// Used mostly when transferring to Xwayland.
+const TEXT_PLAIN_UTF8_STRING: &str = "UTF8_STRING";
 // HTML
 const TEXT_HTML: &str = "text/html";
-const TEXT_HTML_CHARSET_UTF8: &str = "text/html; charset=utf-8";
+const TEXT_HTML_CHARSET_UTF8: &str = "text/html;charset=utf-8";
 // RTF
 const APPLICATION_RTF: &str = "application/rtf";
 // Audio
@@ -112,8 +114,9 @@ impl MimeType {
         // Files
         (TEXT_URI_LIST, TypeHint::UriList),
         // Plaintext
-        (TEXT_PLAIN, TypeHint::Plaintext),
         (TEXT_PLAIN_CHARSET_UTF8, TypeHint::Plaintext),
+        (TEXT_PLAIN, TypeHint::Plaintext),
+        (TEXT_PLAIN_UTF8_STRING, TypeHint::Plaintext),
         // HTML
         (TEXT_HTML, TypeHint::Html),
         (TEXT_HTML_CHARSET_UTF8, TypeHint::Html),
@@ -186,7 +189,12 @@ impl MimeType {
             .iter()
             .find_map(|(haystack, hint)| (*haystack == &*mime).then_some(*hint))
             .or_else(|| {
-                if mime.starts_with("image/") {
+                if mime.split(';').next().is_some_and(|essence| essence.trim() == TEXT_PLAIN) {
+                    Some(TypeHint::Plaintext)
+                } else if mime.split(';').next().is_some_and(|essence| essence.trim() == TEXT_HTML)
+                {
+                    Some(TypeHint::Html)
+                } else if mime.starts_with("image/") {
                     Some(TypeHint::Image { extension_hint: None })
                 } else if mime.starts_with("audio/") {
                     Some(TypeHint::Audio { extension_hint: None })
@@ -298,8 +306,20 @@ impl TypedData for MimeData {
         let data = self.data()?;
 
         match charset {
-            Ok(Charset::Utf8) => String::from_utf8(data.to_vec())
-                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+            Ok(Charset::Utf8) => {
+                let text = String::from_utf8(data.to_vec())
+                    .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+                if self.mime_type.hint == Some(TypeHint::Plaintext) {
+                    // Normalize CR and CRLF into LF.
+                    //
+                    // 'text' mime types require CRLF line ending according to
+                    // RFC-2046, however the platform line terminator and what applications
+                    // expect is LF.
+                    Ok(text.replace("\r\n", "\n").replace('\r', "\n"))
+                } else {
+                    Ok(text)
+                }
+            },
             Err(e) => Err(io::Error::other(e.to_string())),
         }
     }
@@ -1370,5 +1390,51 @@ impl PrimarySelectionSourceHandler for WingyState {
         self.data_transfer_state
             .send_primary_selection
             .take_if(|primary| primary.data_source.inner() == source);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plaintext_advertises_native_and_xwayland_mime_types() {
+        let types: Vec<_> =
+            MimeType::from_dyn(&TypeHint::Plaintext).map(|mime| mime.to_string()).collect();
+        assert_eq!(types, [TEXT_PLAIN_CHARSET_UTF8, TEXT_PLAIN, TEXT_PLAIN_UTF8_STRING]);
+    }
+
+    #[test]
+    fn plaintext_accepts_canonical_legacy_and_xwayland_types() {
+        for mime in [
+            TEXT_PLAIN,
+            TEXT_PLAIN_CHARSET_UTF8,
+            "text/plain; charset=utf-8",
+            TEXT_PLAIN_UTF8_STRING,
+        ] {
+            let mime = MimeType::parse(mime.to_owned());
+            assert_eq!(mime.hint(), Some(TypeHint::Plaintext));
+            let data = MimeData::new(mime, Ok(b"one\r\ntwo\rthree\nfour".to_vec()));
+            assert_eq!(data.try_as_string().unwrap(), "one\ntwo\nthree\nfour");
+        }
+    }
+
+    #[test]
+    fn html_preserves_line_endings_and_accepts_legacy_charset_spacing() {
+        for mime in [TEXT_HTML_CHARSET_UTF8, "text/html; charset=utf-8"] {
+            let mime = MimeType::parse(mime.to_owned());
+            assert_eq!(mime.hint(), Some(TypeHint::Html));
+            let data = MimeData::new(mime, Ok(b"<p>one\r\ntwo</p>".to_vec()));
+            assert_eq!(data.try_as_string().unwrap(), "<p>one\r\ntwo</p>");
+        }
+    }
+
+    #[test]
+    fn invalid_utf8_and_unsupported_charsets_remain_errors() {
+        let invalid = MimeData::new(MimeType::parse(TEXT_PLAIN.into()), Ok(vec![0xff]));
+        assert_eq!(invalid.try_as_string().unwrap_err().kind(), io::ErrorKind::InvalidData);
+        let unsupported =
+            MimeData::new(MimeType::parse("text/plain;charset=latin1".into()), Ok(vec![b'a']));
+        assert!(unsupported.try_as_string().is_err());
     }
 }

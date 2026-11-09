@@ -97,7 +97,7 @@ jobs:
         run: |
           python scripts/library_lockfiles.py
           cargo check --locked -p wingy-x11 -p wingy-wayland -p wingy --all-targets
-          xvfb-run -a cargo test --locked -p wingy-dpi -p wingy-core -p wingy-common -p wingy --lib
+          xvfb-run -a cargo test --locked -p wingy-dpi -p wingy-core -p wingy-common -p wingy-wayland -p wingy --lib
   apple:
     name: validate-apple
     runs-on: macos-latest
