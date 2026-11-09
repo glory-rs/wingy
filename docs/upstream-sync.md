@@ -6,8 +6,8 @@ input, and stable transfer interfaces must be preserved when importing fixes.
 
 The renamed repository does not run a scheduled mirror push. Treat its existing
 `upstream-main` reference as read-only; do not update it when reviewing or porting
-changes. The planned original-name `glory-rs/winit` fork will represent the
-relationship with `rust-windowing/winit` separately.
+changes. The original-name [glory-rs/winit](https://github.com/glory-rs/winit)
+fork represents the relationship with `rust-windowing/winit` separately.
 
 Read the official repository or fetch an upstream revision locally for review,
 then adapt selected fixes on a Wingy development branch. Link the original
