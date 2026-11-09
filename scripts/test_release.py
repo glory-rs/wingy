@@ -18,6 +18,12 @@ spec.loader.exec_module(publisher)
 
 
 class PublicationRetryTests(unittest.TestCase):
+    def test_publish_uses_the_selected_workspace(self):
+        workspace = Path('workspace')
+        with patch.object(publisher.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='')) as command:
+            publisher.publish(['cargo', 'publish'], cwd=workspace)
+            self.assertEqual(command.call_args.kwargs['cwd'], workspace)
+
     def test_success_does_not_contact_registry(self):
         with patch.object(publisher.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='')), \
              patch.object(publisher.urllib.request, 'urlopen') as network:
@@ -69,6 +75,31 @@ class ReleasePlanTests(unittest.TestCase):
 
     def test_workspace_version_precedes_private_example_version(self):
         self.assertIn('"tag": "v0.6.0"',self.validate())
+
+    def test_extra_workspace_package_uses_its_own_configuration_and_archive(self):
+        with tempfile.TemporaryDirectory(prefix='publisher-workspaces-') as directory:
+            root = Path(directory)
+            extra_root = root / 'extra'
+            extra_root.mkdir()
+            (root / 'Cargo.toml').write_text('[package]\nversion="0.6.0"\n', encoding='utf-8')
+            (root / 'release.json').write_text(json.dumps({
+                'repository': 'example/owned', 'allowed_prefixes': ['owned'],
+                'packages': ['owned-extra'], 'extra_manifests': ['extra/Cargo.toml']}), encoding='utf-8')
+            package = {'name': 'owned-extra', 'version': '0.6.0', 'repository': 'https://github.com/example/owned',
+                       'dependencies': [], 'manifest_path': str(extra_root / 'Cargo.toml')}
+            extra_target = extra_root / 'configured-artifacts'
+            metadata = {'workspace_root': str(extra_root), 'target_directory': str(extra_target), 'packages': [package]}
+            with patch.object(publisher, 'ROOT', root), \
+                 patch.object(publisher, 'run', side_effect=[json.dumps({'target_directory': str(root / 'target'), 'packages': []}), None, 'a' * 40]) as command, \
+                 patch.object(publisher.subprocess, 'check_output', return_value=json.dumps(metadata)) as extra_metadata, \
+                 patch.object(publisher, 'validate_archive') as archive, \
+                 patch.object(publisher.sys, 'argv', ['release.py', '--check-package', 'owned-extra']), \
+                 patch.dict(os.environ, {'GITHUB_REF_TYPE': 'branch'}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                publisher.main()
+            self.assertEqual(extra_metadata.call_args.kwargs['cwd'], extra_root)
+            self.assertEqual(command.call_args_list[1].kwargs['cwd'], extra_root)
+            archive.assert_called_once_with(extra_target / 'package' / 'owned-extra-0.6.0.crate', 'a' * 40)
 
     def test_wrong_tag_is_rejected(self):
         with self.assertRaises(SystemExit):
