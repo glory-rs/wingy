@@ -42,4 +42,9 @@ changelog entry.
 
 ### Fixed
 
+- On Wayland, advertise clipboard text MIME aliases used by native and Xwayland
+  clients and normalize plaintext CR/CRLF line endings to LF. Continue accepting
+  legacy MIME charset spacing.
+- On Windows, snapshot clipboard data when requesting its transfer ID and report
+  clipboard read failures immediately.
 - On macOS, fix text selected from the Character Viewer not producing an IME commit.
