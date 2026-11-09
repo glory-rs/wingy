@@ -78,7 +78,7 @@ class ReleasePlanTests(unittest.TestCase):
 
     def test_extra_workspace_package_uses_its_own_configuration_and_archive(self):
         with tempfile.TemporaryDirectory(prefix='publisher-workspaces-') as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             extra_root = root / 'extra'
             extra_root.mkdir()
             (root / 'Cargo.toml').write_text('[package]\nversion="0.6.0"\n', encoding='utf-8')
