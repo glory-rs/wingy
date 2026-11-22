@@ -19,3 +19,5 @@ The former mirror deploy key and Actions secret are not used by any Wingy
 workflow after removal of the scheduled sync. Their retirement belongs to the
 separate repository migration plan; this source change does not remove or rotate
 credentials.
+
+See the [2026-11-22 commit-by-commit review](upstream-review-20261122.md) for the next upstream range.
