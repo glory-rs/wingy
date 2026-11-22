@@ -8,28 +8,28 @@ edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/glory-rs/wingy"
 rust-version = "1.95"
-version = "0.31.1"
+version = "0.31.2"
 
 [workspace.dependencies]
 # Workspace dependencies.
 # `wingy` has no version here to allow using it in dev deps for docs.
 wingy = { path = "wingy" }
-wingy-android = { version = "=0.31.1", path = "wingy-android" }
-wingy-appkit = { version = "=0.31.1", path = "wingy-appkit" }
-wingy-common = { version = "=0.31.1", path = "wingy-common" }
-wingy-core = { version = "=0.31.1", path = "wingy-core" }
-wingy-orbital = { version = "=0.31.1", path = "wingy-orbital" }
-wingy-uikit = { version = "=0.31.1", path = "wingy-uikit" }
-wingy-wayland = { version = "=0.31.1", path = "wingy-wayland", default-features = false }
-wingy-web = { version = "=0.31.1", path = "wingy-web" }
-wingy-win32 = { version = "=0.31.1", path = "wingy-win32" }
-wingy-x11 = { version = "=0.31.1", path = "wingy-x11" }
+wingy-android = { version = "=0.31.2", path = "wingy-android" }
+wingy-appkit = { version = "=0.31.2", path = "wingy-appkit" }
+wingy-common = { version = "=0.31.2", path = "wingy-common" }
+wingy-core = { version = "=0.31.2", path = "wingy-core" }
+wingy-orbital = { version = "=0.31.2", path = "wingy-orbital" }
+wingy-uikit = { version = "=0.31.2", path = "wingy-uikit" }
+wingy-wayland = { version = "=0.31.2", path = "wingy-wayland", default-features = false }
+wingy-web = { version = "=0.31.2", path = "wingy-web" }
+wingy-win32 = { version = "=0.31.2", path = "wingy-win32" }
+wingy-x11 = { version = "=0.31.2", path = "wingy-x11" }
 
 # Core dependencies.
 bitflags = "2.13.2"
 cfg_aliases = "0.2.2"
 cursor-icon = "1.2.0"
-dpi = { package = "wingy-dpi", version = "=0.1.3", path = "dpi" }
+dpi = { package = "wingy-dpi", version = "=0.1.4", path = "dpi" }
 keyboard-types = "0.8.3"
 mint = "0.5.9"
 rwh_06 = { package = "raw-window-handle", version = "0.6.2", features = ["std"] }
